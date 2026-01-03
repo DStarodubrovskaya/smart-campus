@@ -1,5 +1,10 @@
+# Simulation logs
+data/simulated/users_db.csv
+data/simulated/trust_history.csv
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
+*.pyc
 *.py[codz]
 *$py.class
 
