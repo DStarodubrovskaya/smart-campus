@@ -1,4 +1,5 @@
 import os
+import time
 import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
@@ -14,6 +15,7 @@ if not DB_URL:
 engine = create_engine(DB_URL)
 
 def run_seed():
+    start_time = time.time()
     print("Let's start migrating data to PostgreSQL...")
     
     # File paths (relative to the script)
@@ -23,84 +25,109 @@ def run_seed():
     sql_schema = os.path.join(base_path, "init_schema.sql")
 
     with engine.connect() as conn:
-        # 1. Rolling out the table structure (SQL)
-        print("Creating tables...")
+        # 1. Rolling out the table structure
+        print("[1/4] Dropping and creating tables...")
         with open(sql_schema, "r", encoding="utf-8") as f:
-            # We split it into commands, since sqlalchemy doesn't like to execute several commands at once.
             queries = f.read().split(";")
             for query in queries:
                 if query.strip():
                     conn.execute(text(query))
         conn.commit()
 
-        # 2. Loading Schedule
-        print("Loading the schedule...")
+        # 2. Loading Schedule Data
+        print(f"[2/4] Reading CSV schedule...")
         df = pd.read_csv(csv_schedule)
         
-        # Caching dictionaries (to avoid making a million queries)
-        buildings_map = {} # name -> id
-        
-        # Unique buildings
+        print("   -> Inserting buildings...")
         unique_buildings = df[['Building_Name', 'Building_Number']].drop_duplicates()
+        buildings_map = {}
         for _, row in unique_buildings.iterrows():
-            # Insert and return ID
             result = conn.execute(text(
                 "INSERT INTO buildings (name, code) VALUES (:name, :code) ON CONFLICT (name) DO UPDATE SET code=:code RETURNING id"
-            ), {"name": row['Building_Name'], "code": row['Building_Number']})
+            ), {"name": row['Building_Name'], "code": str(row['Building_Number'])})
             buildings_map[row['Building_Name']] = result.fetchone()[0]
-            
-        # Rooms and Events
-        # (Simplified logic: we load everything at once)
+        conn.commit()
+
+        # 3. Rooms and Events
+        print("[3/4] Processing rooms and schedule events...")
+        
+        print("   -> Inserting rooms...")
+        unique_rooms = df[['Building_Name', 'Room']].drop_duplicates()
+        for _, row in unique_rooms.iterrows():
+            conn.execute(text(
+                "INSERT INTO rooms (building_id, room_number) VALUES (:bid, :rnum) ON CONFLICT DO NOTHING"
+            ), {"bid": buildings_map[row['Building_Name']], "rnum": str(row['Room'])})
+        conn.commit()
+        
+        print("   -> Fetching room IDs...")
+        rooms_db = conn.execute(text("SELECT id, building_id, room_number FROM rooms")).fetchall()
+        rooms_map = {(r[1], str(r[2])): r[0] for r in rooms_db}
+
+        print("   -> Building events list in memory...")
         day_map = {"ב'": 1, "ג'": 2, "ד'": 3, "ה'": 4, "ו'": 5, "א'": 6}
+        events_insert_data = []
         
         for _, row in df.iterrows():
             b_id = buildings_map[row['Building_Name']]
+            r_id = rooms_map.get((b_id, str(row['Room'])))
             
-            # Create/find a room
-            res_room = conn.execute(text(
-                "INSERT INTO rooms (building_id, room_number) VALUES (:bid, :rnum) ON CONFLICT (building_id, room_number) DO UPDATE SET room_number=:rnum RETURNING id"
-            ), {"bid": b_id, "rnum": str(row['Room'])})
-            r_id = res_room.fetchone()[0]
-            
-            # Insert a lesson
-            conn.execute(text("""
+            if r_id:
+                events_insert_data.append({
+                    "rid": r_id,
+                    "course": str(row['Course']),
+                    "sem": str(row['Semester']),
+                    "day": day_map.get(row['Day'], 0),
+                    "start": str(row['Time-start']),
+                    "end": str(row['Time-end'])
+                })
+                
+        print(f"   -> Starting massive explicit insert for {len(events_insert_data)} events...")
+        chunk_size = 500
+        total_events = len(events_insert_data)
+
+        # Bulletproof chunking (explicit SQL string builder)
+        for i in range(0, total_events, chunk_size):
+            chunk = events_insert_data[i:i + chunk_size]
+            values_list = []
+            params = {}
+            for j, event in enumerate(chunk):
+                values_list.append(f"(:rid_{j}, :course_{j}, :sem_{j}, :day_{j}, :start_{j}, :end_{j})")
+                params[f"rid_{j}"] = event["rid"]
+                params[f"course_{j}"] = event["course"]
+                params[f"sem_{j}"] = event["sem"]
+                params[f"day_{j}"] = event["day"]
+                params[f"start_{j}"] = event["start"]
+                params[f"end_{j}"] = event["end"]
+
+            query = f"""
                 INSERT INTO schedule_events (room_id, course_name, semester, day_of_week, start_time, end_time)
-                VALUES (:rid, :course, :sem, :day, :start, :end)
-            """), {
-                "rid": r_id,
-                "course": row['Course'],
-                "sem": row['Semester'],
-                "day": day_map.get(row['Day'], 0),
-                "start": row['Time-start'],
-                "end": row['Time-end']
-            })
-            
-        # 3. Loading Users
-        print("Loading Users...")
+                VALUES {','.join(values_list)}
+            """
+            conn.execute(text(query), params)
+            conn.commit()
+            print(f"      ... загружено {min(i + chunk_size, total_events)} из {total_events} занятий")
+
+        # 4. Users
+        print("[4/4] Processing users...")
         if os.path.exists(csv_users):
             df_u = pd.read_csv(csv_users)
+            role_mapper = {"Stu": "Student", "Lec": "Lecturer"}
             
-            role_mapper = {
-                "Stu": "Student",
-                "Lec": "Lecturer"
-            }
-
             for _, row in df_u.iterrows():
-                # Translate 'Stu' -> 'Student'
-                clean_role = role_mapper.get(row['type'], row['type']) 
-                
+                clean_role = role_mapper.get(row['type'], row['type'])
                 conn.execute(text("""
                     INSERT INTO users (app_user_id, role, trust_score)
                     VALUES (:uid, :role, :trust)
                     ON CONFLICT (app_user_id) DO NOTHING
                 """), {
-                    "uid": row['id'], 
+                    "uid": str(row['id']), 
                     "role": clean_role,  
-                    "trust": row['trust']
+                    "trust": float(row['trust'])
                 })
+            conn.commit()
         
-        conn.commit()
-        print("✅ All done! Data in the cloud.")
+        elapsed = round(time.time() - start_time, 2)
+        print(f"✅ All done! Database migrated in {elapsed} seconds.")
 
 if __name__ == "__main__":
     run_seed()

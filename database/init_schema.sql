@@ -1,4 +1,5 @@
 -- Cleaning (for restart)
+DROP TABLE IF EXISTS occupancy_status CASCADE;
 DROP TABLE IF EXISTS schedule_events CASCADE;
 DROP TABLE IF EXISTS rooms CASCADE;
 DROP TABLE IF EXISTS buildings CASCADE;
@@ -38,6 +39,15 @@ CREATE TABLE schedule_events (
     day_of_week INTEGER CHECK (day_of_week BETWEEN 0 AND 6),
     start_time TIME NOT NULL, -- Start time (from the Time-start column).
     end_time TIME NOT NULL -- End time (from the Time-end column).
+);
+
+-- 5. Occupancy Status table (State Machine)
+CREATE TABLE occupancy_status (
+    id SERIAL PRIMARY KEY,
+    room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL, -- 'FREE', 'BUSY', 'PEND'
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(room_id)
 );
 
 -- Speed ​​indices (important for the application)
