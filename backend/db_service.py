@@ -5,11 +5,11 @@ from dotenv import load_dotenv
 class DatabaseService:
     """
     Data Access Layer (DAL)
-    Отвечает исключительно за связь с базой данных PostgreSQL (Supabase).
-    Никакой бизнес-логики симуляции здесь нет.
+    Responsible exclusively for the connection with the PostgreSQL database (Supabase).
+    Contains no simulation business logic.
     """
     def __init__(self):
-        # Загружаем переменные окружения и подключаемся к БД
+        # Load environment variables and connect to the database
         load_dotenv()
         db_url = os.getenv("DATABASE_URL")
         if not db_url:
@@ -18,7 +18,7 @@ class DatabaseService:
         self.engine = create_engine(db_url)
 
     def get_valid_locations(self):
-        """Забирает список всех доступных комнат из базы"""
+        """Retrieves a list of all available rooms from the database."""
         with self.engine.connect() as conn:
             res = conn.execute(text("""
                 SELECT b.code, r.room_number, r.id 
@@ -28,7 +28,7 @@ class DatabaseService:
             return [{"b_code": row[0], "room": row[1], "room_id": row[2]} for row in res]
 
     def get_all_users(self):
-        """Загружает всех пользователей и их Trust Score"""
+        """Loads all users and their corresponding Trust Scores."""
         users = {}
         with self.engine.connect() as conn:
             res = conn.execute(text("SELECT app_user_id, role, trust_score FROM users"))
@@ -41,7 +41,7 @@ class DatabaseService:
         return users
 
     def update_user_trust(self, uid, new_trust):
-        """Обновляет рейтинг доверия конкретного пользователя"""
+        """Updates the trust score of a specific user."""
         with self.engine.connect() as conn:
             conn.execute(text("""
                 UPDATE users SET trust_score = :new_trust WHERE app_user_id = :uid
@@ -49,7 +49,7 @@ class DatabaseService:
             conn.commit()
 
     def update_room_status(self, room_id, status):
-        """Записывает новый статус комнаты (State Machine)"""
+        """Records the new room status (State Machine logic)."""
         with self.engine.connect() as conn:
             conn.execute(text("""
                 INSERT INTO occupancy_status (room_id, status) 
@@ -60,7 +60,7 @@ class DatabaseService:
             conn.commit()
 
     def check_schedule_status(self, b_code, room, current_sem, db_day, check_time_str):
-        """Проверяет по официальному расписанию, идет ли сейчас пара"""
+        """Checks the official schedule to verify if a class is currently taking place."""
         query = text("""
             SELECT 1 FROM schedule_events se
             JOIN rooms r ON se.room_id = r.id

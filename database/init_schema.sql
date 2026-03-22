@@ -1,4 +1,4 @@
--- Cleaning (for restart)
+-- Cleaning routine (for clean restarts)
 DROP TABLE IF EXISTS occupancy_status CASCADE;
 DROP TABLE IF EXISTS schedule_events CASCADE;
 DROP TABLE IF EXISTS rooms CASCADE;
@@ -17,8 +17,8 @@ CREATE TABLE rooms (
     id SERIAL PRIMARY KEY, -- Unique ID
     building_id INTEGER REFERENCES buildings(id) ON DELETE CASCADE,
     room_number VARCHAR(20) NOT NULL, -- Room number/code like "507"
-    capacity INTEGER DEFAULT 0, -- Capacity
-    UNIQUE(building_id, room_number) -- Защита от дублей
+    capacity INTEGER DEFAULT 0, -- Seating capacity
+    UNIQUE(building_id, room_number) -- Prevents duplicate room entries
 );
 
 -- 3. Users' table
@@ -35,7 +35,7 @@ CREATE TABLE schedule_events (
     id SERIAL PRIMARY KEY,
     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
     course_name VARCHAR(255), -- Course title
-    semester VARCHAR(10), -- Semester א/ב/ג
+    semester VARCHAR(10), -- Semester identifier (א/ב/ג)
     day_of_week INTEGER CHECK (day_of_week BETWEEN 0 AND 6),
     start_time TIME NOT NULL, -- Start time (from the Time-start column).
     end_time TIME NOT NULL -- End time (from the Time-end column).
@@ -50,5 +50,5 @@ CREATE TABLE occupancy_status (
     UNIQUE(room_id)
 );
 
--- Speed ​​indices (important for the application)
+-- Database Indices (Crucial for application read performance)
 CREATE INDEX idx_schedule_day_time ON schedule_events(day_of_week, start_time, end_time);

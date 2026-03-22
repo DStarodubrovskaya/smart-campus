@@ -7,31 +7,31 @@ from datetime import datetime, timedelta
 
 # --- CONFIGURATION & PATHS ---
 
-# 1. Get an indicator of where THIS script is located
+# 1. Determine the directory of the current script
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 2. Move up 2 levels to the root of the project
+# 2. Navigate up 2 levels to the project root
 PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "..", ".."))
 
-# Добавляем корень в sys.path, чтобы Python нашел папку backend
+# Add project root to sys.path to ensure Python locates the backend folder
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 from backend.db_service import DatabaseService
 
-# 3. Determine data folders
+# 3. Define data directories
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 SIMULATED_DIR = os.path.join(DATA_DIR, "simulated")
 
-# 4. Check and create a folder for output files if it doesn't exist.
+# 4. Ensure the output directory exists
 os.makedirs(SIMULATED_DIR, exist_ok=True)
 
-# 5. File paths
+# 5. Define file paths
 TRUST_LOG_FILE = os.path.join(SIMULATED_DIR, "trust_history.csv")
 
 # ------------------------------------------------------------------
 
-# Logic settings
+# Simulation Logic Parameters
 CONSENSUS_THRESHOLD = 3
 TRUST_REWARD = 0.02
 TRUST_PENALTY = 0.05
@@ -93,7 +93,7 @@ class UserManager:
         self._init_log_file()
 
     def load_users(self, size):
-        # Теперь грузим пользователей напрямую из БД, а не из CSV
+        # Fetch users directly from the database instead of CSV
         self.users = db.get_all_users()
         print(f"Loaded {len(self.users)} users from Database.")
 
@@ -129,7 +129,7 @@ class UserManager:
         action_type = "REWARD" if delta > 0 else "PENALTY"
         self.log_trust_change(uid, action_type, delta, new)
         
-        # Обновляем траст пользователя прямо в облачной БД
+        # Synchronize updated trust score with the cloud database
         db.update_user_trust(uid, new)
         
         return f"{old:.2f}->{new:.2f}"
@@ -141,7 +141,7 @@ class RoomManager:
     def add_report(self, b_id, room, status, user, sim_time):
         key = (b_id, room)
         
-        # 1. Previous status (Consensus or Schedule)
+        # 1. Establish previous status (Consensus or Schedule base)
         existing_consensus, _ = self.check_consensus(key, context_status=None) 
         if existing_consensus:
             prev_status = existing_consensus
@@ -150,9 +150,9 @@ class RoomManager:
 
         vip_override = False
 
-        # 2. Add Report
+        # 2. Add current report
         if user['trust'] > 0.9:
-            # VIP Logic
+            # VIP Logic Override
             self.active_reports[key] = [{"status": status, "uid": user['id']}] * CONSENSUS_THRESHOLD
             vip_override = True
         else:
@@ -160,12 +160,12 @@ class RoomManager:
             if key not in self.active_reports:
                 self.active_reports[key] = []
             
-            # Add a new report
+            # Append new report
             self.active_reports[key].append({"status": status, "uid": user['id']})
-            # Limit the history size
+            # Restrict history size to maintain memory efficiency
             self.active_reports[key] = self.active_reports[key][-5:] 
 
-        # 3. Check Consensus
+        # 3. Evaluate Consensus
         new_consensus, contributors = self.check_consensus(key, prev_status)
 
         return new_consensus, contributors, vip_override, prev_status
@@ -205,7 +205,7 @@ def get_real_schedule_status(b_id, room, check_datetime):
     current_sem = get_semester_by_date(check_datetime)
     check_time_str = check_datetime.strftime("%H:%M:%S")
     
-    # Теперь мы не фильтруем Pandas, а отправляем прямой запрос в БД
+    # Send a direct query to the DB rather than filtering via Pandas
     return db.check_schedule_status(b_id, room, current_sem, db_day, check_time_str)
 
 # --- 5. RUN SIMULATION ---
@@ -228,7 +228,7 @@ def run_simulation():
 
     try:
         while True:
-            # 1. Time Logic
+            # 1. Time Logic Simulation
             if sim_mode == "REAL":
                 sim_time = datetime.now()
                 if sim_time.weekday() == 5: 
@@ -244,7 +244,7 @@ def run_simulation():
             time_str = sim_time.strftime("%H:%M")
             day_str = DAY_MAP.get(sim_time.weekday(), "?")
 
-            # 2. User Action
+            # 2. User Action Generation
             loc_data = random.choice(valid_locations)
             b_id = loc_data["b_code"]
             room = loc_data["room"]
@@ -258,14 +258,14 @@ def run_simulation():
             else:
                 reported_status = "FREE" if real_status == "BUSY" else "BUSY"
 
-            # 3. Process Report
+            # 3. Report Processing
             new_consensus, contributors, is_vip, prev_status = room_mgr.add_report(b_id, room, reported_status, user, sim_time)
             curr_status_str = new_consensus if new_consensus else "PEND"
 
-            # 4. Messages & Rewards Logic
+            # 4. Message & Reward Handling
             event_msg = ""
             
-            # STATE MACHINE DB UPDATE: Пишем в БД только если статус реально изменился
+            # STATE MACHINE DB UPDATE: Execute DB write only if status genuinely changed
             if prev_status != curr_status_str and curr_status_str != "PEND":
                  db.update_room_status(room_id, curr_status_str)
                  change_indicator = f"{Colors.BOLD}CHANGE (Saved to DB){Colors.RESET}"
@@ -293,7 +293,7 @@ def run_simulation():
             else:
                 event_msg = "Waiting for consensus..."
 
-            # 5. Formatting & Print
+            # 5. Output Formatting
             def color_stat(s):
                 if s == "BUSY": return f"{Colors.RED}{s:<5}{Colors.RESET}"
                 if s == "FREE": return f"{Colors.GREEN}{s:<5}{Colors.RESET}"

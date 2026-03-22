@@ -4,28 +4,28 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
-# Load passwords from the .env file
+# Load database credentials from the .env file
 load_dotenv()
 DB_URL = os.getenv("DATABASE_URL") 
 
 if not DB_URL:
     raise ValueError("❌ Error: DATABASE_URL not found in .env file")
 
-# Connecting to PostgresSQL
+# Establish connection to PostgreSQL
 engine = create_engine(DB_URL)
 
 def run_seed():
     start_time = time.time()
     print("Let's start migrating data to PostgreSQL...")
     
-    # File paths (relative to the script)
+    # Define file paths (relative to the script location)
     base_path = os.path.dirname(os.path.abspath(__file__))
     csv_schedule = os.path.join(base_path, "../data/cleaned/classroom_schedule_cleaned.csv")
     csv_users = os.path.join(base_path, "../data/simulated/users_db.csv")
     sql_schema = os.path.join(base_path, "init_schema.sql")
 
     with engine.connect() as conn:
-        # 1. Rolling out the table structure
+        # 1. Initialize table structures
         print("[1/4] Dropping and creating tables...")
         with open(sql_schema, "r", encoding="utf-8") as f:
             queries = f.read().split(";")
@@ -34,7 +34,7 @@ def run_seed():
                     conn.execute(text(query))
         conn.commit()
 
-        # 2. Loading Schedule Data
+        # 2. Load and process schedule data
         print(f"[2/4] Reading CSV schedule...")
         df = pd.read_csv(csv_schedule)
         
@@ -48,7 +48,7 @@ def run_seed():
             buildings_map[row['Building_Name']] = result.fetchone()[0]
         conn.commit()
 
-        # 3. Rooms and Events
+        # 3. Process rooms and corresponding events
         print("[3/4] Processing rooms and schedule events...")
         
         print("   -> Inserting rooms...")
@@ -85,7 +85,7 @@ def run_seed():
         chunk_size = 500
         total_events = len(events_insert_data)
 
-        # Bulletproof chunking (explicit SQL string builder)
+        # "Bulletproof" chunking via explicit SQL string builder
         for i in range(0, total_events, chunk_size):
             chunk = events_insert_data[i:i + chunk_size]
             values_list = []
@@ -107,7 +107,7 @@ def run_seed():
             conn.commit()
             print(f"      ... загружено {min(i + chunk_size, total_events)} из {total_events} занятий")
 
-        # 4. Users
+        # 4. Load user data
         print("[4/4] Processing users...")
         if os.path.exists(csv_users):
             df_u = pd.read_csv(csv_users)
