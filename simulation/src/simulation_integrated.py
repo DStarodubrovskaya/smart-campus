@@ -2,40 +2,41 @@ import time
 import random
 import csv
 import os
-import pandas as pd
+import sys
 from datetime import datetime, timedelta
 
 # --- CONFIGURATION & PATHS ---
 
-# 1. Get an indicator of where THIS script is located
+# 1. Determine the directory of the current script
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-#2. Move up 2 levels to the root of the project
-# simulation/src -> simulation -> smart-campus-space (ROOT)
+# 2. Navigate up 2 levels to the project root
 PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "..", ".."))
 
-# 3. Determine data folders
+# Add project root to sys.path to ensure Python locates the backend folder
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+
+from backend.db_service import DatabaseService
+
+# 3. Define data directories
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
-CLEANED_DIR = os.path.join(DATA_DIR, "cleaned")
 SIMULATED_DIR = os.path.join(DATA_DIR, "simulated")
 
-# 4. Check and create a folder for output files if it doesn't exist.
+# 4. Ensure the output directory exists
 os.makedirs(SIMULATED_DIR, exist_ok=True)
 
-# 5. File paths
-SCHEDULE_FILE = os.path.join(CLEANED_DIR, "classroom_schedule_cleaned.csv")
-USERS_FILE = os.path.join(SIMULATED_DIR, "users_db.csv")
+# 5. Define file paths
 TRUST_LOG_FILE = os.path.join(SIMULATED_DIR, "trust_history.csv")
 
 # ------------------------------------------------------------------
 
-# Logic settings
+# Simulation Logic Parameters
 CONSENSUS_THRESHOLD = 3
 TRUST_REWARD = 0.02
 TRUST_PENALTY = 0.05
 SEMESTER_SWITCH_MONTH = 3
 SEMESTER_SWITCH_DAY = 12
-
 
 class Colors:
     GREEN = '\033[92m'
@@ -46,25 +47,20 @@ class Colors:
     RESET = '\033[0m'
     BOLD = '\033[1m'
 
-# --- 1. LOADING SCHEDULE ---
-print(f"{Colors.BOLD}Loading schedule...{Colors.RESET}")
+# --- 1. CONNECTING TO DATABASE ---
+print(f"{Colors.BOLD}Connecting to DB via Data Access Layer...{Colors.RESET}")
 try:
-    if not os.path.exists(SCHEDULE_FILE):
-         print(f"{Colors.YELLOW}Warning: {SCHEDULE_FILE} not found. Using empty data.{Colors.RESET}")
-         valid_locations = [[101, "101"], [102, "Auditorium"]]
-         schedule_df = pd.DataFrame(columns=['Building_Number', 'Room', 'Day', 'Semester', 'Time-start', 'Time-end'])
-    else:
-        schedule_df = pd.read_csv(SCHEDULE_FILE)
-        valid_locations = schedule_df[['Building_Number', 'Room']].drop_duplicates().values.tolist()
-        print(f"Loaded {len(valid_locations)} unique locations.")
+    db = DatabaseService()
+    valid_locations = db.get_valid_locations()
+    print(f"Loaded {len(valid_locations)} unique locations from DB.")
 except Exception as e:
-    print(f"{Colors.RED}Error: {e}{Colors.RESET}")
+    print(f"{Colors.RED}Error connecting to DB: {e}{Colors.RESET}")
     exit()
 
 DAY_MAP = {0: "ב'", 1: "ג'", 2: "ד'", 3: "ה'", 4: "ו'", 5: "SAT", 6: "א'"}
+PYTHON_TO_DB_DAY = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 6: 6}
 
 # --- 2. TIME & MODE FUNCTIONS ---
-
 def get_sim_mode():
     print("\n" + "="*50)
     print(" SELECT SIMULATION MODE")
@@ -90,7 +86,6 @@ def get_semester_by_date(date_obj):
     return "א'"
 
 # --- 3. MANAGERS ---
-
 class UserManager:
     def __init__(self, size=30):
         self.users = {}
@@ -98,46 +93,9 @@ class UserManager:
         self._init_log_file()
 
     def load_users(self, size):
-        """Загружает пользователей из CSV или создает новых, если файла нет."""
-        if os.path.exists(USERS_FILE):
-            print(f"Loading users from {USERS_FILE}...")
-            try:
-                df = pd.read_csv(USERS_FILE)
-                for _, row in df.iterrows():
-                    self.users[str(row['id'])] = {
-                        "id": str(row['id']),
-                        "type": row['type'],
-                        "trust": float(row['trust'])
-                    }
-                print(f"Loaded {len(self.users)} users.")
-            except Exception as e:
-                print(f"{Colors.RED}Error loading users: {e}{Colors.RESET}")
-        else:
-            print(f"Creating new user database ({size} users)...")
-            for i in range(size):
-                uid = f"U{random.randint(100, 999)}"
-                while uid in self.users: # Uniqueness check
-                     uid = f"U{random.randint(100, 999)}"
-                     
-                is_lecturer = random.random() < 0.2
-                initial_trust = 0.95 if is_lecturer else round(random.uniform(0.5, 0.7), 2)
-                
-                self.users[uid] = {
-                    "id": uid,
-                    "type": "Lec" if is_lecturer else "Stu",
-                    "trust": initial_trust
-                }
-            self.save_users() # Save immediately
-
-    def save_users(self):
-        """Перезаписывает CSV с актуальными данными."""
-        try:
-            # Convert dict to list of dicts
-            data = list(self.users.values())
-            df = pd.DataFrame(data)
-            df.to_csv(USERS_FILE, index=False)
-        except Exception as e:
-            print(f"Error saving users: {e}")
+        # Fetch users directly from the database instead of CSV
+        self.users = db.get_all_users()
+        print(f"Loaded {len(self.users)} users from Database.")
 
     def _init_log_file(self):
         if not os.path.isfile(TRUST_LOG_FILE):
@@ -171,8 +129,8 @@ class UserManager:
         action_type = "REWARD" if delta > 0 else "PENALTY"
         self.log_trust_change(uid, action_type, delta, new)
         
-        # Important: Save the database after each change
-        self.save_users()
+        # Synchronize updated trust score with the cloud database
+        db.update_user_trust(uid, new)
         
         return f"{old:.2f}->{new:.2f}"
 
@@ -183,7 +141,7 @@ class RoomManager:
     def add_report(self, b_id, room, status, user, sim_time):
         key = (b_id, room)
         
-        # 1. Previous status (Consensus or Schedule)
+        # 1. Establish previous status (Consensus or Schedule base)
         existing_consensus, _ = self.check_consensus(key, context_status=None) 
         if existing_consensus:
             prev_status = existing_consensus
@@ -192,9 +150,9 @@ class RoomManager:
 
         vip_override = False
 
-        # 2. Add Report
+        # 2. Add current report
         if user['trust'] > 0.9:
-            # VIP Logic
+            # VIP Logic Override
             self.active_reports[key] = [{"status": status, "uid": user['id']}] * CONSENSUS_THRESHOLD
             vip_override = True
         else:
@@ -202,12 +160,12 @@ class RoomManager:
             if key not in self.active_reports:
                 self.active_reports[key] = []
             
-            # Add a new report
+            # Append new report
             self.active_reports[key].append({"status": status, "uid": user['id']})
-            # Limit the history size (store a little more than the threshold to remember recent ones)
+            # Restrict history size to maintain memory efficiency
             self.active_reports[key] = self.active_reports[key][-5:] 
 
-        # 3. Check Consensus
+        # 3. Evaluate Consensus
         new_consensus, contributors = self.check_consensus(key, prev_status)
 
         return new_consensus, contributors, vip_override, prev_status
@@ -222,7 +180,6 @@ class RoomManager:
         last_report = reports[-1]
         last_status = last_report['status']
 
-        # Logic: Booking (FREE->BUSY) needs 1 person, Clearing (BUSY->FREE) needs 3
         if context_status == "FREE" and last_status == "BUSY":
             required_threshold = 1
         else:
@@ -235,7 +192,6 @@ class RoomManager:
         statuses = [r['status'] for r in recent]
 
         if all(s == statuses[0] for s in statuses):
-            # Return unique IDs of consensus participants
             contributor_ids = list(set([r['uid'] for r in recent]))
             return statuses[0], contributor_ids
             
@@ -243,27 +199,14 @@ class RoomManager:
 
 # --- 4. SCHEDULE CHECKER ---
 def get_real_schedule_status(b_id, room, check_datetime):
-    day_char = DAY_MAP.get(check_datetime.weekday())
-    current_sem = get_semester_by_date(check_datetime)
-    if day_char == "SAT": return "CLOSED"
-    check_time = check_datetime.time()
+    if check_datetime.weekday() == 5: return "CLOSED"
     
-    try:
-        subset = schedule_df[
-            (schedule_df['Building_Number'].astype(str) == str(b_id)) &
-            (schedule_df['Room'] == room) &
-            (schedule_df['Day'] == day_char) &
-            (schedule_df['Semester'] == current_sem)
-        ]
-        for _, row in subset.iterrows():
-            try:
-                start = datetime.strptime(row['Time-start'].strip(), "%H:%M").time()
-                end = datetime.strptime(row['Time-end'].strip(), "%H:%M").time()
-                if start <= check_time < end: return "BUSY"
-            except: continue
-    except:
-        return "FREE"
-    return "FREE"
+    db_day = PYTHON_TO_DB_DAY.get(check_datetime.weekday())
+    current_sem = get_semester_by_date(check_datetime)
+    check_time_str = check_datetime.strftime("%H:%M:%S")
+    
+    # Send a direct query to the DB rather than filtering via Pandas
+    return db.check_schedule_status(b_id, room, current_sem, db_day, check_time_str)
 
 # --- 5. RUN SIMULATION ---
 def run_simulation():
@@ -285,7 +228,7 @@ def run_simulation():
 
     try:
         while True:
-            # 1. Time Logic
+            # 1. Time Logic Simulation
             if sim_mode == "REAL":
                 sim_time = datetime.now()
                 if sim_time.weekday() == 5: 
@@ -301,68 +244,56 @@ def run_simulation():
             time_str = sim_time.strftime("%H:%M")
             day_str = DAY_MAP.get(sim_time.weekday(), "?")
 
-            # 2. User Action
-            b_id, room = random.choice(valid_locations)
+            # 2. User Action Generation
+            loc_data = random.choice(valid_locations)
+            b_id = loc_data["b_code"]
+            room = loc_data["room"]
+            room_id = loc_data["room_id"]
+            
             user = user_mgr.get_random_user()
             real_status = get_real_schedule_status(b_id, room, sim_time)
 
-            # User decides to lie or tell truth
             if random.random() < user['trust']:
                 reported_status = real_status 
             else:
                 reported_status = "FREE" if real_status == "BUSY" else "BUSY"
 
-            # 3. Process Report
+            # 3. Report Processing
             new_consensus, contributors, is_vip, prev_status = room_mgr.add_report(b_id, room, reported_status, user, sim_time)
             curr_status_str = new_consensus if new_consensus else "PEND"
 
-            # 4. Messages & Rewards Logic
+            # 4. Message & Reward Handling
             event_msg = ""
             
-            # Change Indicator
+            # STATE MACHINE DB UPDATE: Execute DB write only if status genuinely changed
             if prev_status != curr_status_str and curr_status_str != "PEND":
-                 change_indicator = f"{Colors.BOLD}CHANGE{Colors.RESET}"
+                 db.update_room_status(room_id, curr_status_str)
+                 change_indicator = f"{Colors.BOLD}CHANGE (Saved to DB){Colors.RESET}"
             else:
                  change_indicator = ""
 
             if new_consensus:
                 if is_vip:
-                    # VIP Override (No trust change)
-                    event_msg = f"{Colors.YELLOW}👑 VIP OVERRIDE (Forced {new_consensus}). No reward.{Colors.RESET}"
-                
+                    event_msg = f"{Colors.YELLOW}👑 VIP OVERRIDE (Forced {new_consensus}). No reward.{Colors.RESET} {change_indicator}"
                 elif reported_status == new_consensus:
-                    # Agreement with Consensus
-                    
-                    # SCENARIO 1: FULL CONSENSUS (3+ people)
-                    # Reward all participants (including those who were able to book early)
                     if len(contributors) >= CONSENSUS_THRESHOLD:
                         rewarded_users_str = []
                         for contrib_uid in contributors:
                             delta_str = user_mgr.update_trust(contrib_uid, TRUST_REWARD)
                             rewarded_users_str.append(f"{contrib_uid}({delta_str})")
-                        
                         rewards_log = ", ".join(rewarded_users_str)
                         event_msg = f"{Colors.GREEN}✅ CROWD CONSENSUS! Rewards: {rewards_log}{Colors.RESET} {change_indicator}"
-                    
-                    # SCENARIO 2: QUICK BOOKING (1 person)
-                    # Status changes, but NO reward
                     elif len(contributors) == 1 and new_consensus == "BUSY":
                         event_msg = f"{Colors.GREEN}📌 BOOKED. Status updated. No reward until verified.{Colors.RESET} {change_indicator}"
-                    
-                    # SCENARIO 3: INTERIM (2 people) or re-confirmation
                     else:
                         event_msg = f"{Colors.BLUE}ℹ️ Verified existing. Waiting for crowd reward.{Colors.RESET}"
-
                 else:
-                    # SCENARIO 4: CONFLICT / PUNISHMENT
-                    # The user posted a status that contradicts the consensus   
                     trust_delta = user_mgr.update_trust(user['id'], -TRUST_PENALTY)
                     event_msg = f"{Colors.RED}⚠️ CONFLICT with crowd! Penalized ({trust_delta}){Colors.RESET}"
             else:
-                # No consensus (PENDING)
                 event_msg = "Waiting for consensus..."
 
-            # 5. Formatting & Print
+            # 5. Output Formatting
             def color_stat(s):
                 if s == "BUSY": return f"{Colors.RED}{s:<5}{Colors.RESET}"
                 if s == "FREE": return f"{Colors.GREEN}{s:<5}{Colors.RESET}"
