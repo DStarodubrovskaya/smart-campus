@@ -31,21 +31,24 @@ class DatabaseService:
         """Loads all users and their corresponding Trust Scores."""
         users = {}
         with self.engine.connect() as conn:
-            res = conn.execute(text("SELECT app_user_id, role, trust_score FROM users"))
+            res = conn.execute(text("SELECT id, app_user_id, role, trust_score FROM users"))
             for row in res:
-                users[row[0]] = {
-                    "id": row[0],
-                    "type": row[1],
-                    "trust": float(row[2])
+                users[row[1]] = {
+                    "db_id": row[0],  # Internal database ID (number)
+                    "id": row[1],     # String ID (e.g. 'U751')
+                    "type": row[2],
+                    "trust": float(row[3])
                 }
         return users
 
-    def update_user_trust(self, uid, new_trust):
-        """Updates the trust score of a specific user."""
+    def update_user_trust(self, uid, trust_delta):
+        """Updates the trust score by applying a delta, limited between 0.0 and 1.0."""
         with self.engine.connect() as conn:
             conn.execute(text("""
-                UPDATE users SET trust_score = :new_trust WHERE app_user_id = :uid
-            """), {"new_trust": new_trust, "uid": uid})
+                UPDATE users 
+                SET trust_score = GREATEST(0.0, LEAST(1.0, trust_score + :delta))
+                WHERE id = :uid
+            """), {"delta": trust_delta, "uid": uid})
             conn.commit()
 
     def update_room_status(self, room_id, status):
@@ -81,3 +84,36 @@ class DatabaseService:
             }).fetchone()
             
             return "BUSY" if res else "FREE"
+        
+    # New methods for report history
+
+    def add_report_to_history(self, user_db_id, room_db_id, status, trust):
+        """Saves raw report to the database."""
+        with self.engine.connect() as conn:
+            conn.execute(text("""
+                INSERT INTO report_history (user_id, room_id, reported_status, trust_at_report)
+                VALUES (:uid, :rid, :stat, :trust)
+            """), {"uid": user_db_id, "rid": room_db_id, "stat": status, "trust": trust})
+            conn.commit()
+
+   
+    def get_pending_reports(self, room_db_id):
+        """
+        Takes all accumulated reports from the room, 
+        ignoring those older than 15 minutes (Time-To-Live).
+        """
+        with self.engine.connect() as conn:
+            res = conn.execute(text("""
+                SELECT user_id, reported_status, trust_at_report 
+                FROM report_history 
+                WHERE room_id = :rid 
+                AND created_at >= NOW() - INTERVAL '15 minutes'
+                ORDER BY created_at ASC
+            """), {"rid": room_db_id})
+            return [{"user_id": r[0], "status": r[1], "trust": r[2]} for r in res]
+
+    def clear_room_history(self, room_db_id):
+        """Cleans up history after consensus is reached or deprecation occurs."""
+        with self.engine.connect() as conn:
+            conn.execute(text("DELETE FROM report_history WHERE room_id = :rid"), {"rid": room_db_id})
+            conn.commit()
