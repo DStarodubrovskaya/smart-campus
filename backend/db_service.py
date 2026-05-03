@@ -117,3 +117,35 @@ class DatabaseService:
         with self.engine.connect() as conn:
             conn.execute(text("DELETE FROM report_history WHERE room_id = :rid"), {"rid": room_db_id})
             conn.commit()
+    
+    def reset_simulation_state(self, scenario_csv_path):
+        """
+        Clears dynamic data and loads users from the selected scenario.
+        Does not affect buildings, rooms, or schedules.
+        """
+        import csv
+        
+        with self.engine.begin() as conn: # Using .begin() for the transaction
+            # 1. Delete all old reports and current room statuses
+            conn.execute(text("TRUNCATE TABLE report_history CASCADE"))
+            conn.execute(text("TRUNCATE TABLE occupancy_status CASCADE"))
+            
+            # 2. Removing old users
+            conn.execute(text("TRUNCATE TABLE users CASCADE"))
+            
+            # 3. Loading new users from the selected CSV
+            try:
+                with open(scenario_csv_path, mode='r', encoding='utf-8') as file:
+                    reader = csv.DictReader(file)
+                    for row in reader:
+                        conn.execute(text("""
+                            INSERT INTO users (app_user_id, role, trust_score) 
+                            VALUES (:app_user_id, :role, :trust_score)
+                        """), {
+                            "app_user_id": row['app_user_id'],
+                            "role": row['role'],
+                            "trust_score": float(row['trust_score'])
+                        })
+            except Exception as e:
+                print(f"❌ Error loading script {scenario_csv_path}: {e}")
+                raise e

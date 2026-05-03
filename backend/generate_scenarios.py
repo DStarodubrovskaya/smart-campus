@@ -27,16 +27,16 @@ def generate_users(filename, size, distribution):
             
             if group == 'vip':
                 trust = round(random.uniform(0.9, 1.0), 2)
-                role = 'staff'
+                role = 'Lecturer'
             elif group == 'good':
                 trust = round(random.uniform(0.6, 0.89), 2)
-                role = 'student'
+                role = 'Student'
             elif group == 'troll':
                 trust = round(random.uniform(0.2, 0.4), 2) # Spamming, but not banned
-                role = 'student'
+                role = 'Student'
             elif group == 'shadowbanned':
                 trust = round(random.uniform(0.0, 0.19), 2) # Shadowban (buttons don't work)
-                role = 'student'
+                role = 'Student'
             
             writer.writerow([uid, role, trust])
     print(f"✅ Created: {filename} ({size} users)")

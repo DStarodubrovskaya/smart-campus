@@ -53,4 +53,6 @@ DATABASE_URL="postgresql://user:password@host:port/dbname"
 Step 1: python scrape.py (Gather data)
 Step 2: python main.py (Clean data)
 Step 3: python backend/seed_data.py (Initialize and populate DB)
-Step 4: python backend/simulation_integrated.py (Run the logic engine)
+---- 3.1: python backend/simulation_integrated.py (Run the logic engine, for backend only)
+Step 5: uvicorn backend.main:app --reload (Launching the Backend API to communicate with simulation)
+---- Once the server is launched, the interactive documentation is available at: http://127.0.0.1:8000/docs
