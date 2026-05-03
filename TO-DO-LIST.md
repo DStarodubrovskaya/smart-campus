@@ -15,3 +15,8 @@ And we'll remove/archive this later.
 - Unify file formats in the data pipeline
 - Frontend / Mobile App Development
 - Automate scraping
+
+## Important:
+- We currently store pending confirmation reports in-memory via a PostgreSQL database,
+which is good in case of a server crash. However, this isn't the best solution. 
+Connecting Redis is an option, but that adds another db and complicates the architecture.
