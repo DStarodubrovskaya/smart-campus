@@ -1,4 +1,5 @@
 -- Cleaning routine (for clean restarts)
+DROP TABLE IF EXISTS report_history CASCADE;
 DROP TABLE IF EXISTS occupancy_status CASCADE;
 DROP TABLE IF EXISTS schedule_events CASCADE;
 DROP TABLE IF EXISTS rooms CASCADE;
@@ -49,6 +50,19 @@ CREATE TABLE occupancy_status (
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(room_id)
 );
+
+-- 6. Advanced report history (for consensus building)
+CREATE TABLE report_history (
+    id SERIAL PRIMARY KEY,
+    room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    reported_status VARCHAR(20),
+    trust_at_report DECIMAL(5, 2), -- We fix the rating at the moment of pressing
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for quickly searching reports on a specific room
+CREATE INDEX idx_report_history_room ON report_history(room_id);
 
 -- Database Indices (Crucial for application read performance)
 CREATE INDEX idx_schedule_day_time ON schedule_events(day_of_week, start_time, end_time);
