@@ -38,3 +38,19 @@ async def start_simulation(scenario_name: str = "4_normal_day.csv"):
 @app.get("/")
 async def root():
     return {"message": "Smart Campus API is running! 🚀"}
+
+@app.get("/api/rooms")
+async def get_rooms():
+    # Temporary mock data matching your UI fields until your teammate links the SQL fetcher
+    return [
+        {"room_id": "104", "building_number": "604", "occupancy_status": "FREE"},
+        {"room_id": "507", "building_number": "M.Israel", "occupancy_status": "BUSY"},
+        {"room_id": "202", "building_number": "604", "occupancy_status": "PEND"}
+    ]
+
+@app.get("/api/simulation/logs")
+async def get_logs():
+    return [
+        {"id": "1", "timestamp": "22:30:00", "agent_id": "Agent_01", "room_id": "104", "action": "reported FREE", "type": "success"},
+        {"id": "2", "timestamp": "22:30:05", "agent_id": "Agent_02", "room_id": "507", "action": "applied trust penalty (-10)", "type": "error"}
+    ]
