@@ -1,317 +1,124 @@
+import sys
+import os
+
+# Add the project's root folder (smart-campus) to the Python search path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
 import time
 import random
-import csv
-import os
-import sys
-from datetime import datetime, timedelta
+from colorama import Fore, Style, init
 
-# --- CONFIGURATION & PATHS ---
-
-# 1. Determine the directory of the current script
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# 2. Navigate up 2 levels to the project root
-PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "..", ".."))
-
-# Add project root to sys.path to ensure Python locates the backend folder
-if PROJECT_ROOT not in sys.path:
-    sys.path.append(PROJECT_ROOT)
-
+# Import our custom services
 from backend.db_service import DatabaseService
+from logic_engine import TrustLogicEngine
 
-# 3. Define data directories
-DATA_DIR = os.path.join(PROJECT_ROOT, "data")
-SIMULATED_DIR = os.path.join(DATA_DIR, "simulated")
+# Initialize colorama for colored console output
+init(autoreset=True)
 
-# 4. Ensure the output directory exists
-os.makedirs(SIMULATED_DIR, exist_ok=True)
+# Configuration
+SIMULATION_SPEED_SEC = 1.5
 
-# 5. Define file paths
-TRUST_LOG_FILE = os.path.join(SIMULATED_DIR, "trust_history.csv")
-
-# ------------------------------------------------------------------
-
-# Simulation Logic Parameters
-CONSENSUS_THRESHOLD = 3
-TRUST_REWARD = 0.02
-TRUST_PENALTY = 0.05
-SEMESTER_SWITCH_MONTH = 3
-SEMESTER_SWITCH_DAY = 12
-
-class Colors:
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
-
-# --- 1. CONNECTING TO DATABASE ---
-print(f"{Colors.BOLD}Connecting to DB via Data Access Layer...{Colors.RESET}")
-try:
-    db = DatabaseService()
-    valid_locations = db.get_valid_locations()
-    print(f"Loaded {len(valid_locations)} unique locations from DB.")
-except Exception as e:
-    print(f"{Colors.RED}Error connecting to DB: {e}{Colors.RESET}")
-    exit()
-
-DAY_MAP = {0: "ב'", 1: "ג'", 2: "ד'", 3: "ה'", 4: "ו'", 5: "SAT", 6: "א'"}
-PYTHON_TO_DB_DAY = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 6: 6}
-
-# --- 2. TIME & MODE FUNCTIONS ---
-def get_sim_mode():
-    print("\n" + "="*50)
-    print(" SELECT SIMULATION MODE")
-    print("="*50)
-    print("1. REAL TIME (Current System Time)")
-    print("2. RANDOM (Test: Random Workdays)")
-    choice = input("\nEnter 1 or 2: ").strip()
-    return "REAL" if choice == "1" else "RANDOM"
-
-def generate_random_time():
-    start_date = datetime(2026, 1, 1)
-    random_days = random.randint(0, 150)
-    base_date = start_date + timedelta(days=random_days)
-    if base_date.weekday() == 5: base_date += timedelta(days=2)
-    hour = random.randint(8, 19)
-    minute = random.choice([0, 15, 30, 45])
-    return base_date.replace(hour=hour, minute=minute, second=0)
-
-def get_semester_by_date(date_obj):
-    if (date_obj.month > SEMESTER_SWITCH_MONTH) or \
-       (date_obj.month == SEMESTER_SWITCH_MONTH and date_obj.day >= SEMESTER_SWITCH_DAY):
-        return "ב'"
-    return "א'"
-
-# --- 3. MANAGERS ---
-class UserManager:
-    def __init__(self, size=30):
-        self.users = {}
-        self.load_users(size)
-        self._init_log_file()
-
-    def load_users(self, size):
-        # Fetch users directly from the database instead of CSV
-        self.users = db.get_all_users()
-        print(f"Loaded {len(self.users)} users from Database.")
-
-    def _init_log_file(self):
-        if not os.path.isfile(TRUST_LOG_FILE):
-            try:
-                with open(TRUST_LOG_FILE, mode='w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['Timestamp', 'User_ID', 'Action', 'Delta', 'New_Trust_Level'])
-            except IOError as e:
-                print(f"Log Init Error: {e}")
-
-    def log_trust_change(self, uid, action, delta, new_trust):
-        try:
-            with open(TRUST_LOG_FILE, mode='a', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                writer.writerow([timestamp, uid, action, delta, new_trust])
-        except Exception as e:
-            print(f"Logging Error: {e}")
-
-    def get_random_user(self):
-        uid = random.choice(list(self.users.keys()))
-        return self.users[uid]
-
-    def update_trust(self, uid, delta):
-        if uid not in self.users: return 0.0
-        
-        old = self.users[uid]['trust']
-        new = max(0.0, min(1.0, old + delta))
-        self.users[uid]['trust'] = round(new, 3)
-        
-        action_type = "REWARD" if delta > 0 else "PENALTY"
-        self.log_trust_change(uid, action_type, delta, new)
-        
-        # Synchronize updated trust score with the cloud database
-        db.update_user_trust(uid, new)
-        
-        return f"{old:.2f}->{new:.2f}"
-
-class RoomManager:
-    def __init__(self):
-        self.active_reports = {}
-
-    def add_report(self, b_id, room, status, user, sim_time):
-        key = (b_id, room)
-        
-        # 1. Establish previous status (Consensus or Schedule base)
-        existing_consensus, _ = self.check_consensus(key, context_status=None) 
-        if existing_consensus:
-            prev_status = existing_consensus
-        else:
-            prev_status = get_real_schedule_status(b_id, room, sim_time)
-
-        vip_override = False
-
-        # 2. Add current report
-        if user['trust'] > 0.9:
-            # VIP Logic Override
-            self.active_reports[key] = [{"status": status, "uid": user['id']}] * CONSENSUS_THRESHOLD
-            vip_override = True
-        else:
-            # Standard Logic
-            if key not in self.active_reports:
-                self.active_reports[key] = []
-            
-            # Append new report
-            self.active_reports[key].append({"status": status, "uid": user['id']})
-            # Restrict history size to maintain memory efficiency
-            self.active_reports[key] = self.active_reports[key][-5:] 
-
-        # 3. Evaluate Consensus
-        new_consensus, contributors = self.check_consensus(key, prev_status)
-
-        return new_consensus, contributors, vip_override, prev_status
-
-    def check_consensus(self, key, context_status=None):
-        if key not in self.active_reports:
-            return None, []
-        
-        reports = self.active_reports[key]
-        if not reports: return None, []
-
-        last_report = reports[-1]
-        last_status = last_report['status']
-
-        if context_status == "FREE" and last_status == "BUSY":
-            required_threshold = 1
-        else:
-            required_threshold = CONSENSUS_THRESHOLD
-
-        if len(reports) < required_threshold:
-            return None, []
-
-        recent = reports[-required_threshold:]
-        statuses = [r['status'] for r in recent]
-
-        if all(s == statuses[0] for s in statuses):
-            contributor_ids = list(set([r['uid'] for r in recent]))
-            return statuses[0], contributor_ids
-            
-        return None, []
-
-# --- 4. SCHEDULE CHECKER ---
-def get_real_schedule_status(b_id, room, check_datetime):
-    if check_datetime.weekday() == 5: return "CLOSED"
-    
-    db_day = PYTHON_TO_DB_DAY.get(check_datetime.weekday())
-    current_sem = get_semester_by_date(check_datetime)
-    check_time_str = check_datetime.strftime("%H:%M:%S")
-    
-    # Send a direct query to the DB rather than filtering via Pandas
-    return db.check_schedule_status(b_id, room, current_sem, db_day, check_time_str)
-
-# --- 5. RUN SIMULATION ---
 def run_simulation():
-    user_mgr = UserManager()
-    room_mgr = RoomManager()
-    sim_mode = get_sim_mode()
+    print(f"{Fore.CYAN}🚀 Initializing Matrix (Trust Score 2.0)...{Style.RESET_ALL}")
+    
+    # Initialize DB and Logic Engine
+    db = DatabaseService()
+    logic_engine = TrustLogicEngine(db)
 
-    header = (
-        f"{'DATE':<6} {'TIME':<6} {'DAY':<3} | "
-        f"{'UID':<5} {'TYPE':<4} {'TRUST':<5} | "
-        f"{'BLD-ROOM':<12} | "
-        f"{'RPT':<5} | "
-        f"{'PREV':<5} -> {'CURR':<5} | "
-        f"{'EVENT DESCRIPTION'}"
-    )
-    print("-" * 155)
-    print(header)
-    print("-" * 155)
+    # Load initial data from DB
+    users_dict = db.get_all_users()
+    users = list(users_dict.values())
+    locations = db.get_valid_locations()
+
+    if not users or not locations:
+        print("❌ Error: No users or locations found in the database. Please run seed_data.py first.")
+        return
+
+    print(f"✅ Users loaded: {len(users)}")
+    print(f"✅ Locations loaded: {len(locations)}")
+    print("-" * 60)
+    print("Simulation started. Press Ctrl+C to stop.")
 
     try:
         while True:
-            # 1. Time Logic Simulation
-            if sim_mode == "REAL":
-                sim_time = datetime.now()
-                if sim_time.weekday() == 5: 
-                    print(f"\r{Colors.CYAN} >>> SHABBAT: University Closed. Waiting... <<<{Colors.RESET}", end="")
-                    time.sleep(5)
-                    continue
-                time.sleep(1.0)
-            else:
-                sim_time = generate_random_time()
-                time.sleep(0.2) 
-
-            date_str = sim_time.strftime("%d/%m")
-            time_str = sim_time.strftime("%H:%M")
-            day_str = DAY_MAP.get(sim_time.weekday(), "?")
-
-            # 2. User Action Generation
-            loc_data = random.choice(valid_locations)
-            b_id = loc_data["b_code"]
-            room = loc_data["room"]
-            room_id = loc_data["room_id"]
+            # 1. Select a random user and a random room
+            user = random.choice(users)
+            room = random.choice(locations)
             
-            user = user_mgr.get_random_user()
-            real_status = get_real_schedule_status(b_id, room, sim_time)
-
-            if random.random() < user['trust']:
-                reported_status = real_status 
-            else:
-                reported_status = "FREE" if real_status == "BUSY" else "BUSY"
-
-            # 3. Report Processing
-            new_consensus, contributors, is_vip, prev_status = room_mgr.add_report(b_id, room, reported_status, user, sim_time)
-            curr_status_str = new_consensus if new_consensus else "PEND"
-
-            # 4. Message & Reward Handling
-            event_msg = ""
+            # Simulate checking the schedule to get the "actual" status 
+            # (In a real app, this comes from check_schedule_status)
+            actual_status = random.choice(["FREE", "BUSY"])
             
-            # STATE MACHINE DB UPDATE: Execute DB write only if status genuinely changed
-            if prev_status != curr_status_str and curr_status_str != "PEND":
-                 db.update_room_status(room_id, curr_status_str)
-                 change_indicator = f"{Colors.BOLD}CHANGE (Saved to DB){Colors.RESET}"
+            # 2. Simulate user honesty based on their Trust Score
+            is_honest = random.random() < user['trust']
+            if is_honest:
+                reported_status = actual_status
+                action_color = Fore.GREEN
             else:
-                 change_indicator = ""
+                # User lies or makes a mistake
+                reported_status = "BUSY" if actual_status == "FREE" else "FREE"
+                action_color = Fore.RED
 
-            if new_consensus:
-                if is_vip:
-                    event_msg = f"{Colors.YELLOW}👑 VIP OVERRIDE (Forced {new_consensus}). No reward.{Colors.RESET} {change_indicator}"
-                elif reported_status == new_consensus:
-                    if len(contributors) >= CONSENSUS_THRESHOLD:
-                        rewarded_users_str = []
-                        for contrib_uid in contributors:
-                            delta_str = user_mgr.update_trust(contrib_uid, TRUST_REWARD)
-                            rewarded_users_str.append(f"{contrib_uid}({delta_str})")
-                        rewards_log = ", ".join(rewarded_users_str)
-                        event_msg = f"{Colors.GREEN}✅ CROWD CONSENSUS! Rewards: {rewards_log}{Colors.RESET} {change_indicator}"
-                    elif len(contributors) == 1 and new_consensus == "BUSY":
-                        event_msg = f"{Colors.GREEN}📌 BOOKED. Status updated. No reward until verified.{Colors.RESET} {change_indicator}"
-                    else:
-                        event_msg = f"{Colors.BLUE}ℹ️ Verified existing. Waiting for crowd reward.{Colors.RESET}"
-                else:
-                    trust_delta = user_mgr.update_trust(user['id'], -TRUST_PENALTY)
-                    event_msg = f"{Colors.RED}⚠️ CONFLICT with crowd! Penalized ({trust_delta}){Colors.RESET}"
-            else:
-                event_msg = "Waiting for consensus..."
+            # Current official room status (defaulting to FREE for simulation context)
+            current_room_status = "FREE" 
 
-            # 5. Output Formatting
-            def color_stat(s):
-                if s == "BUSY": return f"{Colors.RED}{s:<5}{Colors.RESET}"
-                if s == "FREE": return f"{Colors.GREEN}{s:<5}{Colors.RESET}"
-                if s == "UNK":  return f"{Colors.CYAN}{s:<5}{Colors.RESET}"
-                return f"{s:<5}" 
-
-            row_str = (
-                f"{date_str:<6} {time_str:<6} {day_str:<3} | "
-                f"{user['id']:<5} {user['type']:<4} {user['trust']:<5.2f} | "
-                f"{str(b_id)+'-'+str(room):<12} | "
-                f"{color_stat(reported_status)} | "
-                f"{color_stat(prev_status)} -> {color_stat(curr_status_str)} | "
-                f"{event_msg}"
+            # 3. SEND REPORT TO THE LOGIC ENGINE (The "Brain")
+            result = logic_engine.process_report(
+                user_db_id=user['db_id'], 
+                user_trust=user['trust'],
+                room_db_id=room['room_id'],
+                reported_status=reported_status,
+                current_room_status=current_room_status
             )
-            print(row_str)
+
+            # 4. PROCESS THE ENGINE'S DECISION
+            
+            # Если статус комнаты изменился — обновляем в БД
+            if result["new_status"] != current_room_status:
+                db.update_room_status(room['room_id'], result["new_status"])
+                current_room_status = result["new_status"]
+
+            # Раздаем штрафы/награды и собираем красивую строку для лога
+            trust_log_parts = []
+            for db_uid, trust_delta in result["trust_updates"].items():
+                db.update_user_trust(db_uid, trust_delta)
+                
+                # Ищем строковый ID юзера для вывода на экран и обновляем его локальный рейтинг
+                str_id = "Unknown"
+                for u in users:
+                    if u['db_id'] == db_uid:
+                        u['trust'] = max(0.0, min(1.0, u['trust'] + trust_delta))
+                        str_id = u['id']
+                        break
+                
+                # Формируем цветную строчку изменения рейтинга
+                if trust_delta > 0:
+                    trust_log_parts.append(f"{str_id} ({Fore.GREEN}+{trust_delta}{Style.RESET_ALL})")
+                else:
+                    trust_log_parts.append(f"{str_id} ({Fore.RED}{trust_delta}{Style.RESET_ALL})")
+
+            # 5. FORMATTED CONSOLE LOGGING
+            user_str = f"User {user['id']:<5} (Tr: {user['trust']:.2f})"
+            room_str = f"Room {room['b_code']}-{room['room']}"
+            report_str = f"[{reported_status}]"
+            
+            # Красим статус репорта
+            stat_color = Fore.MAGENTA if reported_status == "BUSY" else Fore.BLUE
+            
+            # Готовим сообщение от "Мозга"
+            event_msg = result['event_msg']
+            if trust_log_parts:
+                # Если были изменения рейтинга, приклеиваем их к сообщению
+                event_msg += f" | {Fore.CYAN}Trust updates:{Style.RESET_ALL} " + ", ".join(trust_log_parts)
+            
+            # Финальный принт
+            print(f"{user_str} | {room_str:<12} | {action_color}Reports: {stat_color}{report_str:<6}{Style.RESET_ALL} | 🧠 {Fore.YELLOW}{event_msg}{Style.RESET_ALL}")
+
+            # Пауза перед следующим событием
+            time.sleep(SIMULATION_SPEED_SEC)
 
     except KeyboardInterrupt:
-        print(f"\n{Colors.YELLOW}Simulation stopped.{Colors.RESET}")
+        print(f"\n{Fore.CYAN}🛑 Simulation stopped by user.{Style.RESET_ALL}")
 
 if __name__ == "__main__":
     run_simulation()
