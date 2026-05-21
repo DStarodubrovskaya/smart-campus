@@ -1,6 +1,7 @@
 import os
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
+import pandas as pd
 
 class DatabaseService:
     """
@@ -98,54 +99,116 @@ class DatabaseService:
 
    
     def get_pending_reports(self, room_db_id):
-        """
-        Takes all accumulated reports from the room, 
-        ignoring those older than 15 minutes (Time-To-Live).
-        """
+        """Only takes ACTIVE reports to calculate consensus."""
         with self.engine.connect() as conn:
             res = conn.execute(text("""
                 SELECT user_id, reported_status, trust_at_report 
                 FROM report_history 
                 WHERE room_id = :rid 
+                AND is_active = TRUE 
                 AND created_at >= NOW() - INTERVAL '15 minutes'
                 ORDER BY created_at ASC
             """), {"rid": room_db_id})
             return [{"user_id": r[0], "status": r[1], "trust": r[2]} for r in res]
 
     def clear_room_history(self, room_db_id):
-        """Cleans up history after consensus is reached or deprecation occurs."""
+        """Now we don't delete logs, we just turn them off for math."""
         with self.engine.connect() as conn:
-            conn.execute(text("DELETE FROM report_history WHERE room_id = :rid"), {"rid": room_db_id})
+            conn.execute(text("""
+                UPDATE report_history 
+                SET is_active = FALSE 
+                WHERE room_id = :rid
+            """), {"rid": room_db_id})
             conn.commit()
     
-    def reset_simulation_state(self, scenario_csv_path):
-        """
-        Clears dynamic data and loads users from the selected scenario.
-        Does not affect buildings, rooms, or schedules.
-        """
-        import csv
+    def reset_simulation_state(self, scenario_file):
+        """Complete reset of the simulation state (DB) and loading a new scenario."""
         
-        with self.engine.begin() as conn: # Using .begin() for the transaction
-            # 1. Delete all old reports and current room statuses
-            conn.execute(text("TRUNCATE TABLE report_history CASCADE"))
-            conn.execute(text("TRUNCATE TABLE occupancy_status CASCADE"))
+        #1: Read CSV and prepare dictionaries in advance
+        df = pd.read_csv(scenario_file)
+        users_to_insert = df.to_dict(orient='records')
+
+        # Use begin() for an automatic transaction (everything will be done at once)
+        with self.engine.begin() as conn:
             
-            # 2. Removing old users
-            conn.execute(text("TRUNCATE TABLE users CASCADE"))
+            #2. ONE mega-request to clear the database (save 5 network hops!)
+            conn.execute(text("""
+                TRUNCATE TABLE report_history CASCADE;
+                TRUNCATE TABLE occupancy_status CASCADE;
+                TRUNCATE TABLE users CASCADE;
+                ALTER SEQUENCE users_id_seq RESTART WITH 1;
+                ALTER SEQUENCE report_history_id_seq RESTART WITH 1;
+                ALTER SEQUENCE occupancy_status_id_seq RESTART WITH 1;
+            """))
+
+            #3. ONE request to load the entire crowd (Bulk Insert)
+            conn.execute(
+                text("""
+                    INSERT INTO users (app_user_id, role, trust_score) 
+                    VALUES (:app_user_id, :role, :trust_score)
+                    ON CONFLICT (app_user_id) DO NOTHING
+                """),
+                users_to_insert 
+            )
+        
+    def get_current_rooms(self):
+        """Gets current room statuses for the frontend with a fallback to the schedule."""
+        with self.engine.connect() as conn:
+            # For the simulation, we're hard-coding Monday 10:00, Semester A (as in main.py).
+            # In production, the server's actual current time (CURRENT_TIMESTAMP) will be used here.
+            res = conn.execute(text("""
+                SELECT 
+                    r.room_number, 
+                    b.code, 
+                    COALESCE(
+                        os.status, 
+                        (SELECT CASE WHEN EXISTS (
+                            SELECT 1 FROM schedule_events se 
+                            WHERE se.room_id = r.id 
+                            AND se.semester LIKE '%א%' 
+                            AND se.day_of_week = 1 
+                            AND '10:00:00'::TIME BETWEEN se.start_time AND se.end_time
+                        ) THEN 'BUSY' ELSE 'FREE' END)
+                    ) as status
+                FROM rooms r
+                JOIN buildings b ON r.building_id = b.id
+                LEFT JOIN occupancy_status os ON r.id = os.room_id
+            """))
+            return [
+                {
+                    "room_id": str(row[0]), 
+                    "building_number": str(row[1]), 
+                    "occupancy_status": row[2]
+                } 
+                for row in res
+            ]
+
+    def get_recent_logs(self):
+        """Gets the latest logs for the terminal."""
+        with self.engine.connect() as conn:
+            res = conn.execute(text("""
+                SELECT rh.id, 
+                       TO_CHAR(rh.created_at, 'HH24:MI:SS') as time_str, 
+                       u.app_user_id, 
+                       r.room_number, 
+                       rh.reported_status
+                FROM report_history rh
+                JOIN users u ON rh.user_id = u.id
+                JOIN rooms r ON rh.room_id = r.id
+                ORDER BY rh.created_at DESC
+                LIMIT 50
+            """))
             
-            # 3. Loading new users from the selected CSV
-            try:
-                with open(scenario_csv_path, mode='r', encoding='utf-8') as file:
-                    reader = csv.DictReader(file)
-                    for row in reader:
-                        conn.execute(text("""
-                            INSERT INTO users (app_user_id, role, trust_score) 
-                            VALUES (:app_user_id, :role, :trust_score)
-                        """), {
-                            "app_user_id": row['app_user_id'],
-                            "role": row['role'],
-                            "trust_score": float(row['trust_score'])
-                        })
-            except Exception as e:
-                print(f"❌ Error loading script {scenario_csv_path}: {e}")
-                raise e
+            logs = []
+            for row in res:
+                status = row[4]
+                log_type = "success" if status == "FREE" else ("warning" if status == "BUSY" else "info")
+                logs.append({
+                    "id": str(row[0]),
+                    "timestamp": row[1],
+                    "agent_id": row[2],
+                    "room_id": str(row[3]),
+                    "action": f"reported {status}",
+                    "type": log_type
+                })
+            return logs[::-1]

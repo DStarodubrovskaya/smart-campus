@@ -2,10 +2,10 @@ import csv
 import os
 import random
 
-# BASE_DIR now points to the backend folder
+# BASE_DIR points to the folder where the script (backend) is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Go up one level ("..") and go to data/scenarios
+# Go one level higher ("..") and into the data/scenarios folder
 SCENARIOS_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "data", "scenarios"))
 
 # Create a folder if it doesn't exist
@@ -32,28 +32,28 @@ def generate_users(filename, size, distribution):
                 trust = round(random.uniform(0.6, 0.89), 2)
                 role = 'Student'
             elif group == 'troll':
-                trust = round(random.uniform(0.2, 0.4), 2) # Spamming, but not banned
+                trust = round(random.uniform(0.2, 0.4), 2)
                 role = 'Student'
             elif group == 'shadowbanned':
-                trust = round(random.uniform(0.0, 0.19), 2) # Shadowban (buttons don't work)
+                trust = round(random.uniform(0.0, 0.19), 2)
                 role = 'Student'
             
             writer.writerow([uid, role, trust])
     print(f"✅ Created: {filename} ({size} users)")
 
 if __name__ == "__main__":
-    print("🛠 Generating datasets for a demo presentation...\n")
+    print("Generating datasets for 100 users...\n")
     
-    # 1. Utopia: Almost everyone is an excellent student. Consensus is reached very quickly and fairly.
-    generate_users("1_utopia.csv", 30, {'vip': 10, 'good': 90, 'troll': 0, 'shadowbanned': 0})
+    #1. Basic Flow (Corresponds to Utopia/Ideal Day)
+    generate_users("1_basic_flow.csv", 100, {'vip': 5, 'good': 95, 'troll': 0, 'shadowbanned': 0})
     
-    # 2. Troll Attack: 80% Are Malicious. We Show How the System Resists Chaos.
-    generate_users("2_troll_attack.csv", 50, {'vip': 0, 'good': 20, 'troll': 40, 'shadowbanned': 40})
+    #2. Conflict (A typical day with controversial situations, the balance between honest and trolls)
+    generate_users("2_conflict.csv", 100, {'vip': 5, 'good': 65, 'troll': 20, 'shadowbanned': 10})
     
-    # 3. VIP Dictatorship: Half of the users are moderators. Statuses change instantly without consensus.
-    generate_users("3_vip_dictatorship.csv", 30, {'vip': 50, 'good': 50, 'troll': 0, 'shadowbanned': 0})
+    #3. Spam Attack (Troll attack, most users want to break the system)
+    generate_users("3_spam_attack.csv", 100, {'vip': 0, 'good': 20, 'troll': 40, 'shadowbanned': 40})
     
-    # 4. A typical day: A balanced scenario (like in real life).
-    generate_users("4_normal_day.csv", 40, {'vip': 5, 'good': 70, 'troll': 15, 'shadowbanned': 10})
+    #4. VIP Pass (Dictatorship of teachers, many VIP users)
+    generate_users("4_vip_pass.csv", 100, {'vip': 40, 'good': 60, 'troll': 0, 'shadowbanned': 0})
     
-    print(f"\n🎉 All script files have been successfully saved to {SCENARIOS_DIR}!")
+    print(f"\nAll scenarios have been successfully saved in {SCENARIOS_DIR}!")

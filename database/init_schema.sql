@@ -57,7 +57,8 @@ CREATE TABLE report_history (
     room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     reported_status VARCHAR(20),
-    trust_at_report DECIMAL(5, 2), -- We fix the rating at the moment of pressing
+    trust_at_report DECIMAL(5, 2), 
+    is_active BOOLEAN DEFAULT TRUE, -- НОВОЕ ПОЛЕ!
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
