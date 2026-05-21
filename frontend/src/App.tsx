@@ -24,6 +24,8 @@ const getStatusStyles = (status: string) => {
 
 function App() {
 
+  const terminalContainerRef = useRef<HTMLDivElement>(null);
+
   const [activeTab, setActiveTab] = useState<'map' | 'search' | 'profile' | 'report'>('map');
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
 
@@ -42,14 +44,17 @@ function App() {
 
   // Auto-scroll logic: triggered every time the logs array changes size
   useEffect(() => {
-    if (terminalBottomRef.current) {
-      // Delays the scroll call by exactly 1 animation frame loop to guarantee the DOM is painted
-      requestAnimationFrame(() => {
-        terminalBottomRef.current?.scrollIntoView({ 
-          behavior: 'auto', 
-          block: 'nearest' 
-        });
-      });
+    const container = terminalContainerRef.current;
+    if (!container) return;
+
+    // 1. THRESHOLD CHECK: Is the user currently looking at the bottom area?
+    // We check if the user is within 60 pixels of the very bottom line.
+    const isUserAtBottom = 
+      container.scrollHeight - container.scrollTop - container.clientHeight <= 60;
+
+    // 2. CONDITIONAL SNAP: Only push the scrollbar down if they were already at the bottom
+    if (isUserAtBottom) {
+      container.scrollTop = container.scrollHeight;
     }
   }, [logs]);
 
@@ -233,6 +238,7 @@ function App() {
             </h3>
             
             <div 
+              ref={terminalContainerRef}
               style={{
                 backgroundColor: '#1e1e1e',
                 borderRadius: '16px',
@@ -270,7 +276,7 @@ function App() {
                   </div>
                 );
               })}
-              <div ref={terminalBottomRef} />
+              
             </div>
             <p className="text-[11px] text-gray-400 mt-2 text-right font-bold">
               סטטוס טרמינל: {isSimulationActive ? '🔴 Live Feed Streaming' : '⚪ Offline'}
