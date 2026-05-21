@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRooms } from './hooks/useRooms'
 import { useStartSimulation } from './hooks/useStartSimulation'
 import { useSimulationLogs } from './hooks/useSimulationLogs' // 👈 Import your new hook
+import { useStopSimulation } from './hooks/useStopSimulation'
 
 function App() {
   const [isSimulationActive, setIsSimulationActive] = useState(false)
@@ -14,6 +15,7 @@ function App() {
   const { data: rooms, isLoading: roomsLoading, error: roomsError } = useRooms(isSimulationActive)
   const { mutate: startSimulation, isPending: isStartingEngine } = useStartSimulation()
   const { data: logs } = useSimulationLogs(isSimulationActive) // 👈 Instantiate log streams
+  const { mutate: stopSimulation } = useStopSimulation()
 
   // Auto-scroll logic: triggered every time the logs array changes size
   useEffect(() => {
@@ -27,6 +29,7 @@ function App() {
       startSimulation({ scenario_id: selectedScenario })
       setIsSimulationActive(true)
     } else {
+      stopSimulation()
       setIsSimulationActive(false)
     }
   }
