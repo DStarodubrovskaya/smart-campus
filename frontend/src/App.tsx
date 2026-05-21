@@ -4,6 +4,15 @@ import { useStartSimulation } from './hooks/useStartSimulation'
 import { useSimulationLogs } from './hooks/useSimulationLogs' // 👈 Import your new hook
 import { useStopSimulation } from './hooks/useStopSimulation'
 
+const CAMPUS_ROOM_MAP: Record<string, { b_code: string; room: string }> = {
+  "1": { b_code: "507", room: "104" },
+  "2": { b_code: "302", room: "08" },
+  "3": { b_code: "310", room: "5" },
+  "4": { b_code: "401", room: "12" },
+  "5": { b_code: "205", room: "3" },
+};
+
+
 function App() {
   const [isSimulationActive, setIsSimulationActive] = useState(false)
   const [selectedScenario, setSelectedScenario] = useState<number>(1)
@@ -126,7 +135,8 @@ function App() {
               overflowY: 'auto',
               fontFamily: '"Courier New", Courier, monospace',
               fontSize: '13px',
-              boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)'
+              boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)',
+              direction: 'ltr' // Keeps the code terminal flow clean if messages contain Hebrew text
             }}
           >
             {/* Fallback if logs haven't started streaming yet */}
@@ -137,12 +147,26 @@ function App() {
             )}
 
             {/* Loop through each log statement coming from FastAPI */}
-            {logs?.map((log) => (
-              <div key={log.id} style={{ marginBottom: '8px', lineHeight: '1.4', color: getLogColor(log.type) }}>
-                <span style={{ color: '#888' }}>[{log.timestamp}]</span>{' '}
-                <strong>{log.agent_id}</strong> in Room {log.room_id}: {log.action}
-              </div>
-            ))}
+            {logs?.map((log: any) => {
+              // Translate the numeric room_id into our official design system layout strings
+              const roomDetails = CAMPUS_ROOM_MAP[log.room_id];
+  
+              return (
+                <div key={log.id || log.timestamp} style={{ marginBottom: '8px', lineHeight: '1.4', color: getLogColor(log.type) }}>
+                  <span style={{ color: '#888' }}>[{log.timestamp}]</span>{' '}
+      
+                  {roomDetails ? (
+                    <>
+                     סוכן <strong>{log.agent_id}</strong> בבניין <strong>{roomDetails.b_code}</strong>, חדר <strong>{roomDetails.room}</strong>: {log.action}
+                    </>
+                  ) : (
+                    <>
+                     סוכן <strong>{log.agent_id}</strong> בחדר <strong>{log.room_id}</strong>: {log.action}
+                    </>
+                  )}
+                </div>
+              );
+            })}
 
             {/* Hidden dummy div used exclusively as an anchor tag for our auto-scroller */}
             <div ref={terminalBottomRef} />
