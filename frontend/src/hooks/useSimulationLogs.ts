@@ -3,12 +3,12 @@ import axios from 'axios'
 
 // 1. Define the TypeScript interface matching the backend log payload
 export interface SimulationLog {
-  id: string
-  timestamp: string       // e.g., "12:24:01"
-  agent_id: string        // e.g., "Agent_43"
-  room_id: string         // e.g., "104"
-  action: string          // e.g., "reported BUSY" or "applied trust penalty (-10)"
-  type: 'info' | 'success' | 'warning' | 'error' 
+  id?: string;
+  timestamp: string;       // e.g., "12:24:01"
+  b_code: string;        // e.g., "Agent_43"
+  room: string;         // e.g., "104"
+  event_msg: string;          // e.g., "reported BUSY" or "applied trust penalty (-10)"
+  type: 'success' | 'error' | 'info'; 
 }
 
 const fetchLogs = async (): Promise<SimulationLog[]> => {
