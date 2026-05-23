@@ -3,6 +3,7 @@ import { useRooms } from './hooks/useRooms'
 import { useStartSimulation } from './hooks/useStartSimulation'
 import { useSimulationLogs } from './hooks/useSimulationLogs' // 👈 Import your new hook
 import { useStopSimulation } from './hooks/useStopSimulation'
+import CampusMap from './components/CampusMap'
 
 const CAMPUS_ROOM_MAP: Record<string, { b_code: string; room: string }> = {
   "1": { b_code: "507", room: "104" },
@@ -121,15 +122,11 @@ function App() {
           </div>
 
           {/* Interactive Map Component Placeholder - Job 3 Map Frame Container */}
-          <div className="border border-gray-200 rounded-3xl overflow-hidden shadow-sm h-64 bg-[#E1F5EE]/20 relative border-dashed border-[#1D9E75]">
-            <div className="absolute inset-0 bg-opacity-40 bg-white flex flex-col items-center justify-center p-6 text-center">
-              <span className="text-4xl mb-2">🗺️</span>
-              <h4 className="text-[#0B221E] font-extrabold text-sm">[ מפת קמפוס דינמית – ג'וב 3 ] [cite: 2, 7]</h4>
-              <p className="text-xs text-gray-500 max-w-xs mt-1">
-                Map developer: mount your SVG coordinate mapping anchor context directly inside this frame structure[cite: 2, 10].
-              </p>
-            </div>
+          <div className="border border-gray-200 rounded-3xl overflow-hidden shadow-sm h-80 relative z-0">
+           <CampusMap rooms={rooms} />
           </div>
+          
+          
 
           {/* Quick Filter Capsule Ribbon (Screen 2 UI Element) */}
           <div className="flex gap-2 overflow-x-auto pb-1 text-xs font-bold scrollbar-none">
