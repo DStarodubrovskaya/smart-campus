@@ -32,7 +32,7 @@ class DatabaseService:
         """Loads all users and their corresponding Trust Scores."""
         users = {}
         with self.engine.connect() as conn:
-            res = conn.execute(text("SELECT id, app_user_id, role, trust_score FROM users"))
+            res = conn.execute(text("SELECT id, app_user_id, role, trust_score, tier FROM users"))
             for row in res:
                 users[row[1]] = {
                     "db_id": row[0],  # Internal database ID (number)
