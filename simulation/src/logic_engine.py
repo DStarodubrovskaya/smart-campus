@@ -7,25 +7,25 @@ class TrustLogicEngine:
         self.TRUST_REWARD = 0.02
         self.TRUST_PENALTY = -0.05
 
-    def process_report(self, user_db_id, user_trust, room_db_id, reported_status, current_room_status):
+    def process_report(self, user_db_id, user_trust, user_tier, room_db_id, reported_status, current_room_status):
         # 1. Shadowban
         if user_trust < self.SHADOWBAN_THRESHOLD:
             return {"new_status": current_room_status, "event_msg": "Shadowbanned (ignored)", "trust_updates": {}}
 
-        # 2. VIP Override (Преподаватели решают всё моментально)
+        # 2. VIP Override
         if user_trust >= self.VIP_THRESHOLD:
             self.db.clear_room_history(room_db_id)
             return {"new_status": reported_status, "event_msg": "VIP Override", "trust_updates": {}}
 
-        # 3. Сохраняем репорт в базу
+        # 3. Save the report to the database
         self.db.add_report_to_history(user_db_id, room_db_id, reported_status, user_trust)
 
-        # 4. Достаем всю историю за последние 15 минут
+        # 4. Get the entire history for the last 15 minutes
         history = self.db.get_pending_reports(room_db_id)
 
-        # --- 5. НОВОЕ: Правило "Первооткрывателя" (Pioneer Rule) ---
-        # Если это единственный репорт по комнате, и юзер не тролль (рейтинг > 0.5)
-        if len(history) == 1 and user_trust >= 0.5:
+        # 5. Pioneer Rule
+        # If this is the only report in the room, and the user is not a troll (rating > 0.5)
+        if len(history) == 1 and user_trust >= 0.5 and user_tier != "Newbie":
             self.db.clear_room_history(room_db_id)
             return {
                 "new_status": reported_status,
@@ -34,7 +34,7 @@ class TrustLogicEngine:
             }
         # -----------------------------------------------------------
 
-        # 6. Математика консенсуса для толпы (если первооткрыватель не сработал)
+        #6. Consensus Mathematics for the Crowd (If the Discoverer Fails)
         weight_for_status = sum(r["trust"] for r in history if r["status"] == reported_status)
 
         if weight_for_status >= self.WEIGHT_THRESHOLD:
@@ -43,7 +43,7 @@ class TrustLogicEngine:
                 delta = self.TRUST_REWARD if r["status"] == reported_status else self.TRUST_PENALTY
                 trust_updates[r["user_id"]] = delta
             
-            # Консенсус достигнут, очищаем историю
+            # Consensus reached, clearing history
             self.db.clear_room_history(room_db_id)
             
             return {

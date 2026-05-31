@@ -38,7 +38,8 @@ class DatabaseService:
                     "db_id": row[0],  # Internal database ID (number)
                     "id": row[1],     # String ID (e.g. 'U751')
                     "type": row[2],
-                    "trust": float(row[3])
+                    "trust": float(row[3]),
+                    "tier": row[4]
                 }
         return users
 
@@ -144,9 +145,14 @@ class DatabaseService:
             #3. ONE request to load the entire crowd (Bulk Insert)
             conn.execute(
                 text("""
-                    INSERT INTO users (app_user_id, role, trust_score) 
-                    VALUES (:app_user_id, :role, :trust_score)
-                    ON CONFLICT (app_user_id) DO NOTHING
+                    INSERT INTO users (app_user_id, role, trust_score, tier, successful_reports, total_reports) 
+                    VALUES (:app_user_id, :role, :trust_score, :tier, :successful_reports, :total_reports)
+                    ON CONFLICT (app_user_id) DO UPDATE 
+                    SET 
+                        trust_score = EXCLUDED.trust_score,
+                        tier = EXCLUDED.tier,
+                        successful_reports = EXCLUDED.successful_reports,
+                        total_reports = EXCLUDED.total_reports
                 """),
                 users_to_insert 
             )
@@ -212,3 +218,49 @@ class DatabaseService:
                     "type": log_type
                 })
             return logs[::-1]
+        
+    def update_user_post_report(self, user_id, trust_delta):
+        """Updates the user's rating after a report, increases counters, and automatically increases the user's tier if the conditions are met."""
+        with self.engine.begin() as conn:
+            # 1. We are updating the rating and overall report counter
+            conn.execute(
+                text("""
+                    UPDATE users 
+                    SET trust_score = GREATEST(0.0, LEAST(1.0, trust_score + :delta)),
+                        total_reports = total_reports + 1
+                    WHERE id = :uid
+                """),
+                {"delta": trust_delta, "uid": user_id}
+            )
+
+            # 2. If the report was correct (delta > 0)
+            if trust_delta > 0:
+                # Increase the success counter
+                conn.execute(
+                    text("UPDATE users SET successful_reports = successful_reports + 1 WHERE id = :uid"),
+                    {"uid": user_id}
+                )
+
+                # Checking if it's time to level up
+                user = conn.execute(
+                    text("SELECT role, tier, successful_reports, trust_score FROM users WHERE id = :uid"),
+                    {"uid": user_id}
+                ).fetchone()
+
+                if user:
+                    u_role, u_tier, u_succ, u_trust = user
+                    new_tier = u_tier
+
+                    # Gamification logic
+                    if u_role == "Student":
+                        if u_tier == "Newbie" and u_succ >= 5:
+                            new_tier = "Resident"
+                        elif u_tier == "Resident" and u_succ >= 50 and float(u_trust) >= 0.75:
+                            new_tier = "VIP"
+
+                    # Save the new level if it has changed
+                    if new_tier != u_tier:
+                        conn.execute(
+                            text("UPDATE users SET tier = :new_tier WHERE id = :uid"),
+                            {"new_tier": new_tier, "uid": user_id}
+                        )
