@@ -293,3 +293,24 @@ async def submit_real_user_report(payload: RealUserReport):
     except Exception as e:
         print(f"❌ Error in /api/reports/submit: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/api/rooms/search")
+async def search_rooms(min_minutes: int = 10, building: str = "הכל"):
+    """
+    Эндпоинт для расширенного поиска на фронтенде (חיפוש וסינון מתקדם).
+    Принимает минимальное количество свободных минут и номер корпуса.
+    """
+    try:
+        results = db.search_advanced_rooms(min_minutes, building)
+        return {
+            "status": "success",
+            "filters_applied": {
+                "min_minutes": min_minutes,
+                "building": building
+            },
+            "results_count": len(results),
+            "rooms": results
+        }
+    except Exception as e:
+        print(f"❌ Error in /api/rooms/search: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
