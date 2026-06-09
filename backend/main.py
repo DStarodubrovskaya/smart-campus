@@ -6,6 +6,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware 
 from pydantic import BaseModel
+from typing import Literal
+from sqlalchemy import text
 import asyncio
 import simpy
 import random
@@ -83,6 +85,7 @@ async def run_simulation_engine():
                     result = logic_engine.process_report(
                         user_db_id=user_data["db_id"], 
                         user_trust=user_data["trust"],
+                        user_tier=user_data.get("tier", "Resident"), 
                         room_db_id=target_room["room_id"],
                         reported_status=reported_status,
                         current_room_status=current_room_status
@@ -94,6 +97,9 @@ async def run_simulation_engine():
 
                     # Update the agent's local rating for the following actions
                     for db_uid, trust_delta in result["trust_updates"].items():
+                        # Save the result in the database and check the Level Up for the agent
+                        db.update_user_post_report(db_uid, trust_delta)
+                        
                         if user_data["db_id"] == db_uid:
                             user_data["trust"] = max(0.0, min(1.0, user_data["trust"] + trust_delta))
 
@@ -123,6 +129,16 @@ async def run_simulation_engine():
 
 class SimulationPayload(BaseModel):
     scenario_id: int
+
+# --- NEW MODELS FOR REAL USERS ---
+class UserLoginPayload(BaseModel):
+    app_user_id: str
+    role: Literal["Student", "Lecturer"]
+
+class RealUserReport(BaseModel):
+    app_user_id: str
+    room_id: int
+    reported_status: Literal["FREE", "BUSY"]
 
 SCENARIO_MAP = {
     1: "1_basic_flow.csv",
@@ -174,3 +190,106 @@ async def stop_simulation():
         return {"status": "success", "message": "Engine stopping..."}
     else:
         return {"status": "info", "message": "Engine is already stopped."}
+
+# --- NEW ENDPOINTS FOR THE FRONTEND (REAL USERS) ---
+
+@app.post("/api/users/login")
+async def user_login(payload: UserLoginPayload):
+    """Registration or login of a real user"""
+    try:
+        with db.engine.begin() as conn:
+            user = conn.execute(
+                text("SELECT role, trust_score, tier, successful_reports FROM users WHERE app_user_id = :uid"),
+                {"uid": payload.app_user_id}
+            ).fetchone()
+            
+            if not user:
+                initial_trust = 0.95 if payload.role == "Lecturer" else 0.50
+                initial_tier = "VIP" if payload.role == "Lecturer" else "Newbie"
+                
+                conn.execute(text("""
+                    INSERT INTO users (app_user_id, role, trust_score, tier, successful_reports, total_reports)
+                    VALUES (:uid, :role, :trust, :tier, 0, 0)
+                """), {
+                    "uid": payload.app_user_id,
+                    "role": payload.role,
+                    "trust": initial_trust,
+                    "tier": initial_tier
+                })
+                
+                return {
+                    "status": "success",
+                    "user": {
+                        "app_user_id": payload.app_user_id,
+                        "role": payload.role,
+                        "tier": initial_tier,
+                        "trust_score": initial_trust,
+                        "pioneer_rule_unlocked": (payload.role == "Lecturer")
+                    }
+                }
+            
+            role, trust_score, tier, successful_reports = user
+            return {
+                "status": "success",
+                "user": {
+                    "app_user_id": payload.app_user_id,
+                    "role": role,
+                    "tier": tier,
+                    "trust_score": float(trust_score),
+                    "pioneer_rule_unlocked": (tier != "Newbie" or role == "Lecturer")
+                }
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/reports/submit")
+async def submit_real_user_report(payload: RealUserReport):
+    """Receiving a real report from a live user"""
+    try:
+        # 1. Get user data and room status
+        with db.engine.begin() as conn:
+            user = conn.execute(text("""
+                SELECT id, trust_score, tier FROM users WHERE app_user_id = :uid
+            """), {"uid": payload.app_user_id}).fetchone()
+            
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found. Call /login first.")
+                
+            db_id, trust_score, tier = user
+
+            room_status_row = conn.execute(
+                text("SELECT status FROM occupancy_status WHERE room_id = :rid"),
+                {"rid": payload.room_id}
+            ).fetchone()
+            current_status = room_status_row[0] if room_status_row else "FREE"
+
+        # 2. Transfer everything to the Trust Logic Engine
+        logic = TrustLogicEngine(db)
+        
+        result = logic.process_report(
+            user_db_id=db_id, 
+            user_trust=float(trust_score), 
+            user_tier=tier,
+            room_db_id=payload.room_id, 
+            reported_status=payload.reported_status, 
+            current_room_status=current_status
+        )
+
+        # 3. Save the new room status if it has changed
+        if result["new_status"] != current_status:
+            db.update_room_status(payload.room_id, result["new_status"])
+
+        # 4. Apply penalties, rewards, and auto-leveling
+        for uid, trust_delta in result["trust_updates"].items():
+            db.update_user_post_report(uid, trust_delta)
+
+        # 5. Return a response to update the frontend
+        return {
+            "status": "success",
+            "message": result["event_msg"],
+            "room_new_status": result["new_status"]
+        }
+
+    except Exception as e:
+        print(f"❌ Error in /api/reports/submit: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

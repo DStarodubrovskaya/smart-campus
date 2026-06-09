@@ -42,21 +42,28 @@ def run_seed():
         unique_buildings = df[['Building_Name', 'Building_Number']].drop_duplicates()
         buildings_map = {}
         for _, row in unique_buildings.iterrows():
+            # Если имя пустое (NaN), ставим заглушку
+            b_name = "Неизвестно" if pd.isna(row['Building_Name']) else row['Building_Name']
+            b_code = str(row['Building_Number'])
+            
             result = conn.execute(text(
-                "INSERT INTO buildings (name, code) VALUES (:name, :code) ON CONFLICT (name) DO UPDATE SET code=:code RETURNING id"
-            ), {"name": row['Building_Name'], "code": str(row['Building_Number'])})
-            buildings_map[row['Building_Name']] = result.fetchone()[0]
+                "INSERT INTO buildings (name, code) VALUES (:name, :code) ON CONFLICT (code) DO UPDATE SET name=:name RETURNING id"
+            ), {"name": b_name, "code": b_code})
+            # Теперь сохраняем ID по номеру здания, а не по имени!
+            buildings_map[b_code] = result.fetchone()[0]
         conn.commit()
 
         # 3. Process rooms and corresponding events
         print("[3/4] Processing rooms and schedule events...")
         
         print("   -> Inserting rooms...")
-        unique_rooms = df[['Building_Name', 'Room']].drop_duplicates()
+        # Уникальные комнаты теперь ищем по номеру здания
+        unique_rooms = df[['Building_Number', 'Room']].drop_duplicates()
         for _, row in unique_rooms.iterrows():
+            b_code = str(row['Building_Number'])
             conn.execute(text(
                 "INSERT INTO rooms (building_id, room_number) VALUES (:bid, :rnum) ON CONFLICT DO NOTHING"
-            ), {"bid": buildings_map[row['Building_Name']], "rnum": str(row['Room'])})
+            ), {"bid": buildings_map[b_code], "rnum": str(row['Room'])})
         conn.commit()
         
         print("   -> Fetching room IDs...")
@@ -68,8 +75,8 @@ def run_seed():
         events_insert_data = []
         
         for _, row in df.iterrows():
-            b_id = buildings_map[row['Building_Name']]
-            r_id = rooms_map.get((b_id, str(row['Room'])))
+            b_code = str(row['Building_Number'])
+            r_id = rooms_map.get((buildings_map[b_code], str(row['Room'])))
             
             if r_id:
                 events_insert_data.append({
@@ -116,13 +123,16 @@ def run_seed():
             for _, row in df_u.iterrows():
                 clean_role = role_mapper.get(row['type'], row['type'])
                 conn.execute(text("""
-                    INSERT INTO users (app_user_id, role, trust_score)
-                    VALUES (:uid, :role, :trust)
+                    INSERT INTO users (app_user_id, role, trust_score, tier, successful_reports, total_reports)
+                    VALUES (:uid, :role, :trust, :tier, :succ, :tot)
                     ON CONFLICT (app_user_id) DO NOTHING
                 """), {
                     "uid": str(row['id']), 
                     "role": clean_role,  
-                    "trust": float(row['trust'])
+                    "trust": float(row['trust']),
+                    "tier": row.get('tier', 'Newbie'),
+                    "succ": int(row.get('successful_reports', 0)),
+                    "tot": int(row.get('total_reports', 0))
                 })
             conn.commit()
         

@@ -8,9 +8,9 @@ DROP TABLE IF EXISTS users CASCADE;
 
 -- 1. Buildings' table
 CREATE TABLE buildings (
-    id SERIAL PRIMARY KEY, -- Unique ID
-    name VARCHAR(100) NOT NULL UNIQUE, -- Name, like 'מ.ישראל'
-    code VARCHAR(50) -- Building number/code like "604"
+    id SERIAL PRIMARY KEY, 
+    name VARCHAR(100), -- Убрали UNIQUE
+    code VARCHAR(50) NOT NULL UNIQUE -- Добавили UNIQUE сюда
 );
 
 -- 2. Rooms' table
@@ -28,6 +28,9 @@ CREATE TABLE users (
     app_user_id VARCHAR(50) UNIQUE NOT NULL, -- 'U181'
     role VARCHAR(20) CHECK (role IN ('Student', 'Lecturer')), -- User's title
     trust_score DECIMAL(5, 2) DEFAULT 0.50, -- Current trust level. Updated at each recalculation.
+    tier VARCHAR(20) DEFAULT 'Newbie',
+    successful_reports INT DEFAULT 0,
+    total_reports INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

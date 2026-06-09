@@ -15,7 +15,7 @@ def generate_users(filename, size, distribution):
     filepath = os.path.join(SCENARIOS_DIR, filename)
     with open(filepath, mode='w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['app_user_id', 'role', 'trust_score'])
+        writer.writerow(['app_user_id', 'role', 'trust_score', 'tier', 'successful_reports', 'total_reports'])
         
         for i in range(1, size + 1):
             uid = f"U{i:03d}"
@@ -25,20 +25,54 @@ def generate_users(filename, size, distribution):
                 weights=list(distribution.values())
             )[0]
             
+            # Default values ​​(will be overridden below)
+            tier = "Resident"
+            successful_reports = 0
+            total_reports = 0
+            
             if group == 'vip':
                 trust = round(random.uniform(0.9, 1.0), 2)
                 role = 'Lecturer'
+                tier = 'VIP'
+                successful_reports = random.randint(50, 150)
+                total_reports = successful_reports + random.randint(0, 10)
+                
             elif group == 'good':
-                trust = round(random.uniform(0.6, 0.89), 2)
                 role = 'Student'
+                # 20% chance that a good student is a Newbie
+                if random.random() < 0.20:
+                    trust = 0.50
+                    tier = 'Newbie'
+                    successful_reports = random.randint(0, 4)
+                    total_reports = successful_reports + random.randint(0, 3)
+                else:
+                    trust = round(random.uniform(0.6, 0.89), 2)
+                    # If the rating is close to the top, he is a student VIP
+                    if trust >= 0.75:
+                        tier = 'VIP'
+                        successful_reports = random.randint(50, 100)
+                    else:
+                        tier = 'Resident'
+                        successful_reports = random.randint(5, 49)
+                    total_reports = successful_reports + random.randint(5, 20)
+                    
             elif group == 'troll':
                 trust = round(random.uniform(0.2, 0.4), 2)
                 role = 'Student'
+                tier = 'Resident' # They are not newbies, they just lie a lot
+                successful_reports = random.randint(5, 30)
+                total_reports = successful_reports + random.randint(20, 50) 
+                
             elif group == 'shadowbanned':
                 trust = round(random.uniform(0.0, 0.19), 2)
                 role = 'Student'
+                tier = 'Resident'
+                successful_reports = random.randint(5, 20)
+                total_reports = successful_reports + random.randint(50, 100) # A huge percentage of lies
             
-            writer.writerow([uid, role, trust])
+            # Write the updated array
+            writer.writerow([uid, role, trust, tier, successful_reports, total_reports])
+            
     print(f"✅ Created: {filename} ({size} users)")
 
 if __name__ == "__main__":
