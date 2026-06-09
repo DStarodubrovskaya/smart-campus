@@ -14,7 +14,7 @@ const CAMPUS_ROOM_MAP: Record<string, { b_code: string; room: string }> = {
   "5": { b_code: "205", room: "3" },
 };
 
-// Design Token Color Helper based on your official specification sheet [cite: 21, 22]
+// Design Token Color Helper based on your official specification sheet
 const getStatusStyles = (status: string) => {
   switch (status?.toUpperCase()) {
     case 'FREE': return { bg: 'bg-[#E1F5EE]', border: 'border-[#1D9E75]', text: 'text-[#1D9E75]', label: 'פנוי' };
@@ -98,7 +98,7 @@ function App() {
         <h1 className="text-xl font-black tracking-tight">Smart Campus</h1>
       </div>
       <span className="text-xs bg-[#1D9E75]/20 text-[#1D9E75] px-3 py-1 rounded-full font-bold border border-[#1D9E75]/30">
-        אוניברסיטת בר-אילן [cite: 8, 18]
+        אוניברסיטת בר-אילן
       </span>
     </header>
 
@@ -114,19 +114,19 @@ function App() {
           <div className="grid grid-cols-4 gap-2.5 text-center">
             <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm">
               <span className="block text-lg font-black text-gray-700">43</span>
-              <span className="text-[10px] text-gray-400 font-bold uppercase">סה"כ כיתות [cite: 7]</span>
+              <span className="text-[10px] text-gray-400 font-bold uppercase">סה"כ כיתות</span>
             </div>
             <div className="bg-[#E1F5EE] p-3 rounded-2xl border border-[#1D9E75]/30 shadow-sm">
               <span className="block text-lg font-black text-[#1D9E75]">14</span>
-              <span className="text-[10px] text-[#1D9E75] font-bold">פנויות [cite: 7]</span>
+              <span className="text-[10px] text-[#1D9E75] font-bold">פנויות</span>
             </div>
             <div className="bg-[#FAEEDA] p-3 rounded-2xl border border-[#EF9F27]/30 shadow-sm">
               <span className="block text-lg font-black text-[#EF9F27]">6</span>
-              <span className="text-[10px] text-[#EF9F27] font-bold">חלקיות [cite: 7]</span>
+              <span className="text-[10px] text-[#EF9F27] font-bold">חלקיות</span>
             </div>
             <div className="bg-[#FCEBEB] p-3 rounded-2xl border border-[#E24B4A]/30 shadow-sm">
               <span className="block text-lg font-black text-[#E24B4A]">23</span>
-              <span className="text-[10px] text-[#E24B4A] font-bold">תפוסות [cite: 7]</span>
+              <span className="text-[10px] text-[#E24B4A] font-bold">תפוסות</span>
             </div>
           </div>
 
@@ -138,11 +138,24 @@ function App() {
           
 
           {/* Quick Filter Capsule Ribbon (Screen 2 UI Element) */}
+                   {/* Quick Filter Capsule Ribbon (Screen 2 UI Element) */}
           <div className="flex gap-2 overflow-x-auto pb-1 text-xs font-bold scrollbar-none">
-            <button className="bg-[#1D9E75] text-white px-4 py-2 rounded-full shadow-sm">פנויות 🟢 [cite: 7]</button>
-            <button className="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-full">שקט 🤫 [cite: 7]</button>
-            <button className="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-full">קרוב אליי 📍 [cite: 7]</button>
-            <button className="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-full">WiFi ⚡ [cite: 7]</button>
+            <button className="bg-[#1D9E75] text-white px-4 py-2 rounded-full shadow-sm inline-flex items-center gap-1.5 whitespace-nowrap">
+              <span>פנויות</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></svg>
+            </button>
+            <button className="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-full inline-flex items-center gap-1.5 whitespace-nowrap">
+              <span>שקט</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z" /><path d="M22 9l-6 6" /><path d="M16 9l6 6" /></svg>
+            </button>
+            <button className="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-full inline-flex items-center gap-1.5 whitespace-nowrap">
+              <span>קרוב אליי</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z" /><circle cx="12" cy="10" r="2.5" /></svg>
+            </button>
+            <button className="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-full inline-flex items-center gap-1.5 whitespace-nowrap">
+              <span>WiFi</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0" /><path d="M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></svg>
+            </button>
           </div>
 
           {/* Simulation Controls Panel (YOUR ORIGINAL RADIOS & LOGIC PRESERVED) */}
@@ -240,7 +253,7 @@ function App() {
           {/* Real-Time Terminal Output Log (YOUR ORIGINAL SYSTEM LOOP PRESERVED) */}
           <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm">
             <h3 className="text-sm font-black text-gray-700 mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> עדכוני קונצנזוס מהשטח [cite: 10, 12]
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> עדכוני קונצנזוס מהשטח
             </h3>
             
             <div 
@@ -272,7 +285,7 @@ function App() {
                     <span style={{ color: '#888' }}>[{log.timestamp}]</span>{' '}
                     {roomDetails ? (
                       <>
-                        סוכן <strong>{log.agent_id}</strong> בבניין <strong>{roomDetails.b_code}</strong>, חדר <strong>{roomDetails.room}</strong>: {log.action} [cite: 12]
+                        סוכן <strong>{log.agent_id}</strong> בבניין <strong>{roomDetails.b_code}</strong>, חדר <strong>{roomDetails.room}</strong>: {log.action}
                       </>
                     ) : (
                       <>
@@ -414,22 +427,34 @@ function App() {
           <div className="w-16 h-16 bg-[#1D9E75] text-white flex items-center justify-center text-2xl font-black rounded-full mx-auto shadow-md mb-2">
             ג
           </div>
-          <h2 className="text-xl font-black text-gray-800">גל בן יקר [cite: 6, 18]</h2>
+          <h2 className="text-xl font-black text-gray-800">גל בן יקר</h2>
           <span className="text-xs bg-gray-100 text-gray-500 font-bold px-3 py-1 rounded-full border border-gray-200/50">
-            סטודנט/ית מאומת [cite: 6, 18]
+            סטודנט/ית מאומת
           </span>
 
           <div className="bg-[#0B221E] text-white p-4 rounded-2xl mt-5 shadow-inner">
-            <span className="text-[10px] text-green-300 font-bold uppercase tracking-wider block">ציון אמינות קהילתי [cite: 6, 18]</span>
-            <div className="text-4xl font-black text-[#1D9E75] my-1">87 [cite: 6, 18]</div>
-            <p className="text-xs text-green-300/90 font-medium">★ דירוג: משתמש/ת מדהים ואמין! [cite: 18]</p>
+            <span className="text-[10px] text-green-300 font-bold uppercase tracking-wider block">ציון אמינות קהילתי</span>
+            <div className="text-4xl font-black text-[#1D9E75] my-1">87</div>
+            <p className="text-xs text-green-300/90 font-medium">★ דירוג: משתמש/ת מדהים ואמין!</p>
           </div>
 
-          <div className="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-gray-100">
-            <div className="text-center opacity-100"><span className="text-2xl block">☀️</span><span className="text-[9px] font-bold text-gray-400">דיווח ראשון [cite: 18]</span></div>
-            <div className="text-center opacity-100"><span className="text-2xl block">🎯</span><span className="text-[9px] font-bold text-gray-400">דיוק גבוה [cite: 18]</span></div>
-            <div className="text-center opacity-100"><span className="text-2xl block">🔥</span><span className="text-[9px] font-bold text-gray-400">7 ימים ברצף [cite: 18]</span></div>
-            <div className="text-center opacity-40 grayscale"><span className="text-2xl block">💎</span><span className="text-[9px] font-bold text-gray-400">50 דיווחים [cite: 18]</span></div>
+                    <div className="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-gray-100">
+            <div className="text-center opacity-100">
+              <svg className="w-7 h-7 mx-auto block text-[#1D9E75]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+              <span className="text-[9px] font-bold text-gray-400">דיווח ראשון</span>
+            </div>
+            <div className="text-center opacity-100">
+              <svg className="w-7 h-7 mx-auto block text-[#1D9E75]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.5" /></svg>
+              <span className="text-[9px] font-bold text-gray-400">דיוק גבוה</span>
+            </div>
+            <div className="text-center opacity-100">
+              <svg className="w-7 h-7 mx-auto block text-[#1D9E75]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3c2 3 5 4 5 8a5 5 0 0 1-10 0c0-1.6.6-2.8 1.5-3.6C8.7 8.4 9 9 10 9c0-2 1-4 2-6z" /></svg>
+              <span className="text-[9px] font-bold text-gray-400">7 ימים ברצף</span>
+            </div>
+            <div className="text-center opacity-40">
+              <svg className="w-7 h-7 mx-auto block text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12l3 5-9 12L3 8z" /><path d="M3 8h18" /><path d="M9 3 7.5 8 12 20" /><path d="M15 3l1.5 5L12 20" /></svg>
+              <span className="text-[9px] font-bold text-gray-400">50 דיווחים</span>
+            </div>
           </div>
         </div>
       )}
@@ -437,29 +462,39 @@ function App() {
     </main>
 
     {/* 3. PERSISTENT SYSTEM BOTTOM NAVIGATION MENU BAR (Screen Flow Anchor) */}
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 py-2.5 px-6 flex justify-around items-center shadow-2xl z-50 rounded-t-3xl">
+        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 py-2.5 px-6 flex justify-around items-center shadow-2xl z-50 rounded-t-3xl">
       <button 
         onClick={() => setActiveTab('profile')} 
         className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'profile' ? 'text-[#1D9E75] scale-110 font-black' : 'text-gray-400 font-bold'}`}
       >
-        <span className="text-xl">👤</span>
-        <span className="text-[10px]">פרופיל שלי [cite: 2, 18]</span>
+        <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="8" r="4" />
+          <path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" />
+        </svg>
+        <span className="text-[10px]">פרופיל שלי</span>
       </button>
 
       <button 
         onClick={() => setActiveTab('search')} 
         className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'search' ? 'text-[#1D9E75] scale-110 font-black' : 'text-gray-400 font-bold'}`}
       >
-        <span className="text-xl">🔍</span>
-        <span className="text-[10px]">חיפוש מתקדם [cite: 2, 9]</span>
+        <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="7" />
+          <path d="M21 21l-4.3-4.3" />
+        </svg>
+        <span className="text-[10px]">חיפוש מתקדם</span>
       </button>
 
       <button 
         onClick={() => setActiveTab('map')} 
         className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'map' ? 'text-[#1D9E75] scale-110 font-black' : 'text-gray-400 font-bold'}`}
       >
-        <span className="text-xl">🗺️</span>
-        <span className="text-[10px]">מפת קמפוס [cite: 2, 7]</span>
+        <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+          <path d="M9 4v14" />
+          <path d="M15 6v14" />
+        </svg>
+        <span className="text-[10px]">מפת קמפוס</span>
       </button>
     </nav>
   </div>
