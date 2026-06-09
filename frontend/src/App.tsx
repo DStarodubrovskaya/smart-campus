@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRooms } from './hooks/useRooms'
 import { useStartSimulation } from './hooks/useStartSimulation'
-import { useSimulationLogs } from './hooks/useSimulationLogs' // 👈 Import your new hook
+import { useSimulationLogs } from './hooks/useSimulationLogs'
 import { useStopSimulation } from './hooks/useStopSimulation'
+import { useSearchRooms } from './hooks/useSearchRooms'
 import CampusMap from './components/CampusMap'
 
 const CAMPUS_ROOM_MAP: Record<string, { b_code: string; room: string }> = {
@@ -29,6 +30,9 @@ function App() {
 
   const [activeTab, setActiveTab] = useState<'map' | 'search' | 'profile' | 'report'>('map');
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [minFreeMinutes, setMinFreeMinutes] = useState<number>(60); // Default - 1 hour
+  const [selectedBuildingFilter, setSelectedBuildingFilter] = useState<string>('הכל');
+  
 
 
   const [isSimulationActive, setIsSimulationActive] = useState(false)
@@ -40,8 +44,13 @@ function App() {
   // Consume your three architect layer hooks
   const { data: rooms, isLoading: roomsLoading, error: roomsError } = useRooms(isSimulationActive)
   const { mutate: startSimulation, isPending: isStartingEngine } = useStartSimulation()
-  const { data: logs } = useSimulationLogs(isSimulationActive) // 👈 Instantiate log streams
+  const { data: logs } = useSimulationLogs(isSimulationActive)
   const { mutate: stopSimulation } = useStopSimulation()
+  const { mutate: searchRooms, data: searchResponse, isPending: isSearching } = useSearchRooms()
+
+  const uniqueBuildings = rooms 
+    ? Array.from(new Set(rooms.map(r => r.building_number))).filter(Boolean).sort()
+    : [];
 
   // Auto-scroll logic: triggered every time the logs array changes size
   useEffect(() => {
@@ -288,26 +297,111 @@ function App() {
           ========================================== */}
       {activeTab === 'search' && (
         <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm space-y-4 animate-fadeIn">
-          <h2 className="text-xl font-black text-[#0B221E]">חיפוש וסינון מתקדם [cite: 2, 9]</h2>
+          <h2 className="text-xl font-black text-[#0B221E]">חיפוש וסינון מתקדם</h2>
           <div className="space-y-4 mt-2">
+            
+            {/* ФИЛЬТР ПО ЗДАНИЯМ (ТЕПЕРЬ ДИНАМИЧЕСКИЙ) */}
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5">בחר בניין קמפוס [cite: 3]</label>
-              <div className="grid grid-cols-4 gap-2 text-xs font-bold text-center">
-                <button className="bg-[#1D9E75] text-white py-2 rounded-xl">הכל [cite: 9]</button>
-                <button className="bg-gray-50 text-gray-600 py-2 rounded-xl border border-gray-100">507 [cite: 9]</button>
-                <button className="bg-gray-50 text-gray-600 py-2 rounded-xl border border-gray-100">401 [cite: 9]</button>
-                <button className="bg-gray-50 text-gray-600 py-2 rounded-xl border border-gray-100">302 [cite: 9]</button>
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5">בחר בניין קמפוס</label>
+              
+              {/* Используем flex-wrap чтобы кнопки переносились на новые строки */}
+              <div className="flex flex-wrap gap-2 text-xs font-bold justify-center">
+                
+                {/* Кнопка "Всё" всегда идет первой */}
+                <button 
+                  onClick={() => setSelectedBuildingFilter('הכל')}
+                  className={`py-2 px-4 rounded-xl transition-all ${
+                    selectedBuildingFilter === 'הכל' 
+                      ? 'bg-[#1D9E75] text-white shadow-md' 
+                      : 'bg-gray-50 text-gray-600 border border-gray-100'
+                  }`}
+                >
+                  הכל
+                </button>
+
+                {/* Рисуем кнопки для всех зданий, которые есть в базе */}
+                {uniqueBuildings.map((bld) => (
+                  <button 
+                    key={bld}
+                    onClick={() => setSelectedBuildingFilter(bld)}
+                    className={`py-2 px-4 rounded-xl transition-all ${
+                      selectedBuildingFilter === bld 
+                        ? 'bg-[#1D9E75] text-white shadow-md' 
+                        : 'bg-gray-50 text-gray-600 border border-gray-100'
+                    }`}
+                  >
+                    {bld}
+                  </button>
+                ))}
+                
               </div>
             </div>
+
+            {/* СЛАЙДЕР ВРЕМЕНИ */}
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5">זמן פנוי מינימלי (סליידר) [cite: 33]</label>
-              <input type="range" min="10" max="180" className="w-full accent-[#1D9E75]" />
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5">
+                זמן פנוי מינימלי: <span className="text-[#1D9E75]">{minFreeMinutes} דקות</span>
+              </label>
+              <input 
+                type="range" 
+                min="10" 
+                max="180" 
+                step="10"
+                value={minFreeMinutes}
+                onChange={(e) => setMinFreeMinutes(parseInt(e.target.value))}
+                className="w-full accent-[#1D9E75]" 
+              />
               <div className="flex justify-between text-[11px] text-gray-400 font-bold mt-1">
-                <span>10 דקות [cite: 16]</span>
-                <span>לפחות שעה [cite: 16]</span>
+                <span>10 דקות</span>
+                <span>לפחות שעה</span>
                 <span>3 שעות</span>
               </div>
             </div>
+
+            {/* КНОПКА ПОИСКА */}
+            <button 
+              onClick={() => searchRooms({ min_minutes: minFreeMinutes, building: selectedBuildingFilter })}
+              disabled={isSearching}
+              className="w-full bg-[#0B221E] text-white py-3 rounded-xl font-black mt-4 shadow-md transition-all hover:bg-[#1D9E75] disabled:opacity-70"
+            >
+              {isSearching ? 'מחפש...' : 'חפש חדרים פנויים'}
+            </button>
+
+            {/* БЛОК РЕЗУЛЬТАТОВ ПОИСКА */}
+            {searchResponse && (
+              <div className="mt-6 border-t border-gray-100 pt-4 animate-fadeIn">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-sm font-black text-gray-800">תוצאות חיפוש:</h3>
+                  <span className="text-xs bg-[#1D9E75]/10 text-[#1D9E75] font-bold px-2 py-1 rounded-lg">
+                    {searchResponse.results_count} חדרים מתאימים
+                  </span>
+                </div>
+                
+                <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-1">
+                  {searchResponse.results_count === 0 ? (
+                    <div className="text-center py-6 text-gray-400 text-sm font-bold">
+                      לא נמצאו חדרים שעונים על הדרישות 😔
+                    </div>
+                  ) : (
+                    searchResponse.rooms.map((room: any) => (
+                      <div key={room.room_id} className="bg-gray-50 border border-gray-100 p-3 rounded-xl flex justify-between items-center shadow-sm">
+                        <div>
+                          <div className="text-xs text-gray-500 font-bold uppercase">בניין {room.building_number}</div>
+                          <div className="text-base font-black text-gray-800">כיתה {room.room_number}</div>
+                        </div>
+                        <div className="text-left">
+                          <div className="text-lg font-black text-[#1D9E75]">{room.free_for_minutes} דק'</div>
+                          <div className="text-[10px] text-gray-400 font-bold">
+                            עד: {room.next_class_at}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}

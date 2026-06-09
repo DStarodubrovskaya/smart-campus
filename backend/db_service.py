@@ -178,7 +178,7 @@ class DatabaseService:
                     ) as status
                 FROM rooms r
                 JOIN buildings b ON r.building_id = b.id
-                LEFT JOIN occupancy_status os ON r.id = os.room_id
+                LEFT JOIN occupancy_status os ON r.id = os.room_id AND os.last_updated >= NOW() - INTERVAL '60 minutes'
             """))
             return [
                 {
@@ -264,3 +264,73 @@ class DatabaseService:
                             text("UPDATE users SET tier = :new_tier WHERE id = :uid"),
                             {"new_tier": new_tier, "uid": user_id}
                         )
+
+    def search_advanced_rooms(self, min_minutes: int, building_code: str):
+        """
+        Searches for available rooms based on building filters and the minimum time until the next class.
+        """
+        with self.engine.connect() as conn:
+            # ================================================
+            # ⚠️ ATTENTION: DEMO MODE
+            # ================================================
+            # Currently, the SQL query uses a hardcoded time ('10:00:00')
+            # and day of the week (1 = Monday, semester 'א').
+            #
+            # To switch to PRODUCTION (real time), replace the following in the query:
+            # 1. '10:00:00'::TIME -> :current_time
+            # 2. day_of_week = 1 -> day_of_week = :current_day
+            # And pass these values ​​to conn.execute() using datetime.now()
+            # =============================================
+            
+            query = text("""
+                WITH CurrentStatus AS (
+                    -- 1. Find out which rooms are available RIGHT NOW (at 10:00)
+                    SELECT r.id as room_id, r.room_number, b.code as building_number,
+                    COALESCE(os.status, 
+                        (SELECT CASE WHEN EXISTS (
+                            SELECT 1 FROM schedule_events se 
+                            WHERE se.room_id = r.id AND se.semester LIKE '%א%' AND se.day_of_week = 1 
+                            AND '10:00:00'::TIME BETWEEN se.start_time AND se.end_time
+                        ) THEN 'BUSY' ELSE 'FREE' END)
+                    ) as current_status
+                    FROM rooms r
+                    JOIN buildings b ON r.building_id = b.id
+                    LEFT JOIN occupancy_status os ON r.id = os.room_id AND os.last_updated >= NOW() - INTERVAL '60 minutes'
+                ),
+                NextClass AS (
+                    -- 2. We are looking for the START TIME of the next pair for each room today
+                    SELECT room_id, MIN(start_time) as next_start
+                    FROM schedule_events
+                    WHERE semester LIKE '%א%' AND day_of_week = 1 AND start_time > '10:00:00'::TIME
+                    GROUP BY room_id
+                )
+                -- 3. Put it all together and calculate the difference in minutes
+                SELECT cs.room_id, cs.building_number, cs.room_number, 
+                       nc.next_start,
+                       -- If there is no next pair, we consider the room free until the end of the day (22:00)
+                       EXTRACT(EPOCH FROM (COALESCE(nc.next_start, '22:00:00'::TIME) - '10:00:00'::TIME))/60 as free_minutes_left
+                FROM CurrentStatus cs
+                LEFT JOIN NextClass nc ON cs.room_id = nc.room_id
+                WHERE cs.current_status = 'FREE' 
+                -- Filter 1: By time
+                AND EXTRACT(EPOCH FROM (COALESCE(nc.next_start, '22:00:00'::TIME) - '10:00:00'::TIME))/60 >= :min_minutes
+                -- Filter 2: By building (if 'הכל' is passed, we show all)
+                AND (:building = 'הכל' OR cs.building_number = :building)
+                ORDER BY free_minutes_left DESC
+            """)
+            
+            res = conn.execute(query, {
+                "min_minutes": min_minutes,
+                "building": building_code
+            })
+            
+            return [
+                {
+                    "room_id": str(row[0]),
+                    "building_number": str(row[1]),
+                    "room_number": str(row[2]),
+                    "next_class_at": str(row[3]) if row[3] else "No more classes today",
+                    "free_for_minutes": int(row[4])
+                }
+                for row in res
+            ]
