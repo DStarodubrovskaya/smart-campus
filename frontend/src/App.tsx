@@ -28,6 +28,13 @@ function App() {
 
   const terminalContainerRef = useRef<HTMLDivElement>(null);
 
+  const [usernameInput, setUsernameInput] = useState<string>('');
+  const [selectedRole, setSelectedRole] = useState<'Student' | 'Lecturer'>('Student');
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
+  
   const [activeTab, setActiveTab] = useState<'map' | 'search' | 'profile' | 'report'>('map');
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [minFreeMinutes, setMinFreeMinutes] = useState<number>(60); // Default - 1 hour
