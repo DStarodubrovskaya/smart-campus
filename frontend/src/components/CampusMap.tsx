@@ -52,7 +52,7 @@ const BUILDING_COORDS: Record<string, { lat: number; lng: number; name: string }
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  FREE: '#1D9E75',
+  FREE: '#006937',
   BUSY: '#E24B4A',
   PARTIAL: '#EF9F27',
   UNKNOWN: '#888780',
@@ -87,7 +87,7 @@ function buildingIcon(
       box-shadow:${shadow};
       display:flex;align-items:center;justify-content:center;
       color:#fff;font-weight:700;font-size:${fontSize}px;line-height:1;
-      font-family:'Nunito',sans-serif;opacity:${opacity};
+      font-family:'Assistant',sans-serif;opacity:${opacity};
     ">${label}</div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
@@ -264,10 +264,10 @@ export default function CampusMap({ rooms }: CampusMapProps) {
           line-height: 34px !important;
           font-size: 18px !important;
           font-weight: 700 !important;
-          color: #0B221E !important;
+          color: #004128 !important;
           background: #fff !important;
           border: none !important;
-          font-family: 'Nunito', sans-serif !important;
+          font-family: 'Assistant', sans-serif !important;
         }
         .leaflet-control-zoom a:hover { background: #f3f4f6 !important; }
         .leaflet-control-zoom-in { border-bottom: 1px solid #eee !important; }
@@ -300,7 +300,7 @@ export default function CampusMap({ rooms }: CampusMapProps) {
               outline: 'none',
               boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
               background: '#fff',
-              fontFamily: "'Nunito',sans-serif",
+              fontFamily: "'Assistant',sans-serif",
             }}
           />
           {isSearching && (
