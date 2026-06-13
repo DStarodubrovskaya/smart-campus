@@ -3,6 +3,7 @@ import axios from 'axios'
 
 // 1. Define the TypeScript interface matching your backend's room data structure
 export interface Room {
+  id: number
   room_id: string       
   building_number: string 
   occupancy_status: 'FREE' | 'BUSY' | 'PARTIAL' | 'UNKNOWN' 

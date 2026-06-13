@@ -175,13 +175,15 @@ class DatabaseService:
                             AND se.day_of_week = 1 
                             AND '10:00:00'::TIME BETWEEN se.start_time AND se.end_time
                         ) THEN 'BUSY' ELSE 'FREE' END)
-                    ) as status
+                    ) as status,
+                    r.id
                 FROM rooms r
                 JOIN buildings b ON r.building_id = b.id
                 LEFT JOIN occupancy_status os ON r.id = os.room_id AND os.last_updated >= NOW() - INTERVAL '60 minutes'
             """))
             return [
                 {
+                    "id": row[3],
                     "room_id": str(row[0]), 
                     "building_number": str(row[1]), 
                     "occupancy_status": row[2]
