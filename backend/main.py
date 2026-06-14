@@ -303,8 +303,8 @@ async def submit_real_user_report(payload: RealUserReport):
 @app.get("/api/rooms/search")
 async def search_rooms(min_minutes: int = 10, building: str = "הכל"):
     """
-    Эндпоинт для расширенного поиска на фронтенде (חיפוש וסינון מתקדם).
-    Принимает минимальное количество свободных минут и номер корпуса.
+    Endpoint for advanced front-end search (חיפוש וסינון מתקדם).
+    Accepts a minimum number of available minutes and a building number.
     """
     try:
         results = db.search_advanced_rooms(min_minutes, building)
@@ -333,4 +333,18 @@ async def get_user_history(app_user_id: str):
         }
     except Exception as e:
         print(f"❌ Error in /api/users/{app_user_id}/history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/api/simulation/clear-logs")
+async def clear_simulation_logs():
+    """Clears all history and room statuses upon admin request."""
+    # Prevent accidental clicks while the engine is running
+    if IS_ENGINE_RUNNING:
+        raise HTTPException(status_code=400, detail="Stop the simulation first!")
+        
+    try:
+        db.clear_all_history()
+        return {"status": "success", "message": "History cleared!"}
+    except Exception as e:
+        print(f"❌ Error clearing logs: {e}")
         raise HTTPException(status_code=500, detail=str(e))

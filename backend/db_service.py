@@ -163,6 +163,16 @@ class DatabaseService:
                 users_to_insert 
             )
         
+    def clear_all_history(self):
+        """Completely clears the report history and room statuses (clear button for admins)."""
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                TRUNCATE TABLE report_history CASCADE;
+                ALTER SEQUENCE report_history_id_seq RESTART WITH 1;
+                TRUNCATE TABLE occupancy_status CASCADE;
+                ALTER SEQUENCE occupancy_status_id_seq RESTART WITH 1;
+            """))
+        
     def get_current_rooms(self):
         """Gets current room statuses for the frontend with a fallback to the schedule."""
         with self.engine.connect() as conn:
