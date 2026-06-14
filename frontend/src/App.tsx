@@ -9,14 +9,7 @@ import CampusMap from './components/CampusMap'
 import { useSubmitReport } from './hooks/useSubmitReport'
 import logoLight from './assets/logo-light.svg'
 import logoDark from './assets/logo-dark.svg'
-
-const CAMPUS_ROOM_MAP: Record<string, { b_code: string; room: string }> = {
-  "1": { b_code: "507", room: "104" },
-  "2": { b_code: "302", room: "08" },
-  "3": { b_code: "310", room: "5" },
-  "4": { b_code: "401", room: "12" },
-  "5": { b_code: "205", room: "3" },
-};
+import { useUserHistory } from './hooks/useUserHistory'
 
 // Design Token Color Helper based on your official specification sheet
 const getStatusStyles = (status: string) => {
@@ -57,6 +50,7 @@ function App() {
   const { data: logs } = useSimulationLogs(isSimulationActive)
   const { mutate: stopSimulation } = useStopSimulation()
   const { mutate: searchRooms, data: searchResponse, isPending: isSearching } = useSearchRooms()
+  const { data: userHistory, isLoading: isLoadingHistory } = useUserHistory(currentUser?.app_user_id)
 
   const uniqueBuildings = rooms 
     ? Array.from(new Set(rooms.map(r => r.building_number))).filter(Boolean).sort()
@@ -456,23 +450,12 @@ function App() {
                       </p>
                     )}
 
-                    {logs?.map((log: any) => {
-                      const roomDetails = CAMPUS_ROOM_MAP[log.room_id];
-                      return (
-                        <div key={log.id || log.timestamp} style={{ marginBottom: '8px', lineHeight: '1.4', color: getLogColor(log.type) }}>
-                          <span style={{ color: '#888' }}>[{log.timestamp}]</span>{' '}
-                          {roomDetails ? (
-                            <>
-                              סוכן <strong>{log.agent_id}</strong> בבניין <strong>{roomDetails.b_code}</strong>, חדר <strong>{roomDetails.room}</strong>: {log.action}
-                            </>
-                          ) : (
-                            <>
-                              סוכן <strong>{log.agent_id}</strong> במזהה כיתה <strong>#{log.room_id}</strong>: {log.action}
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {logs?.map((log: any) => (
+                      <div key={log.id || log.timestamp} style={{ marginBottom: '12px', lineHeight: '1.5', color: getLogColor(log.type), fontFamily: '"Courier New", Courier, monospace', direction: 'ltr', textAlign: 'left' }}>
+                        <div>📡 <span style={{ color: '#888' }}>[{log.timestamp}]</span> User <strong>{log.agent_id}</strong> (Tr: {log.trust?.toFixed(2) || '0.50'}) | Room {log.building}-{log.room} | Report: [{log.status || 'UNKNOWN'}]</div>
+                        <div style={{ color: '#78cde6', marginLeft: '24px', fontSize: '11px' }}>↳ 🧠 {log.message}</div>
+                      </div>
+                    ))}
                     
                   </div>
                   <p className="text-[11px] text-gray-400 mt-2 text-right font-semibold">
@@ -664,6 +647,51 @@ function App() {
                     <svg className="w-7 h-7 mx-auto block text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12l3 5-9 12L3 8z" /><path d="M3 8h18" /><path d="M9 3 7.5 8 12 20" /><path d="M15 3l1.5 5L12 20" /></svg>
                     <span className="text-[9px] font-semibold text-gray-400">50 דיווחים</span>
                   </div>
+                  <div className="mt-6 border-t border-gray-100 pt-5 text-right animate-fadeIn">
+                  <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#006937]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    היסטוריית דיווחים
+                  </h3>
+
+                  {isLoadingHistory ? (
+                    <div className="text-center py-4 text-xs text-gray-400 font-semibold animate-pulse">
+                      טוען היסטוריה...
+                    </div>
+                  ) : !userHistory || userHistory.length === 0 ? (
+                    <div className="text-center py-6 bg-gray-50 rounded-2xl border border-gray-100 text-gray-400 text-xs font-semibold">
+                      טרם בוצעו דיווחים במערכת
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2.5 max-h-48 overflow-y-auto pr-1">
+                      {userHistory.map((report: any, index: number) => (
+                        <div key={index} className="flex justify-between items-center bg-gray-50 border border-gray-100 p-3 rounded-xl shadow-sm transition-all hover:bg-gray-100/50">
+                          
+                          <div className="flex flex-col text-right">
+                            <span className="text-sm font-semibold text-gray-800">
+                              בניין {report.building_number} | כיתה {report.room_number}
+                            </span>
+                            <span className="text-[10px] text-gray-400 font-semibold mt-0.5" dir="ltr">
+                              {report.timestamp}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-md border shadow-sm ${
+                              report.status === 'FREE'
+                                ? 'bg-[#E1F5EE] text-[#006937] border-[#006937]/20'
+                                : 'bg-[#FCEBEB] text-[#E24B4A] border-[#E24B4A]/20'
+                            }`}>
+                              {report.status === 'FREE' ? 'פנוי' : 'תפוס'}
+                            </span>
+                          </div>
+
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 </div>
               </div>
             )}
