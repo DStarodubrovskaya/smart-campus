@@ -9,14 +9,8 @@ import CampusMap from './components/CampusMap'
 import { useSubmitReport } from './hooks/useSubmitReport'
 import logoLight from './assets/logo-light.svg'
 import logoDark from './assets/logo-dark.svg'
-
-const CAMPUS_ROOM_MAP: Record<string, { b_code: string; room: string }> = {
-  "1": { b_code: "507", room: "104" },
-  "2": { b_code: "302", room: "08" },
-  "3": { b_code: "310", room: "5" },
-  "4": { b_code: "401", room: "12" },
-  "5": { b_code: "205", room: "3" },
-};
+import { useUserHistory } from './hooks/useUserHistory'
+import { useClearLogs } from './hooks/useClearLogs'
 
 // Design Token Color Helper based on your official specification sheet
 const getStatusStyles = (status: string) => {
@@ -36,6 +30,9 @@ function App() {
   const [selectedRole, setSelectedRole] = useState<'Student' | 'Lecturer'>('Student');
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  const [isAdminLogin, setIsAdminLogin] = useState<boolean>(false);
+  const [adminPassword, setAdminPassword] = useState<string>('');
 
   const [currentUser, setCurrentUser] = useState<any | null>(null);
 
@@ -57,6 +54,9 @@ function App() {
   const { data: logs } = useSimulationLogs(isSimulationActive)
   const { mutate: stopSimulation } = useStopSimulation()
   const { mutate: searchRooms, data: searchResponse, isPending: isSearching } = useSearchRooms()
+  const { data: userHistory, isLoading: isLoadingHistory } = useUserHistory(currentUser?.app_user_id)
+
+  const { mutate: clearLogs, isPending: isClearingLogs } = useClearLogs()
 
   const uniqueBuildings = rooms 
     ? Array.from(new Set(rooms.map(r => r.building_number))).filter(Boolean).sort()
@@ -156,27 +156,40 @@ function App() {
   const handleLoginSubmit = async (e: any) => {
     e.preventDefault();
     
-    // Validation: Catch blank inputs before hitting the server
-    if (!usernameInput.trim()) {
+    // Check for a regular user
+    if (!isAdminLogin && !usernameInput.trim()) {
       setLoginError('אנא הזן מזהה משתמש');
+      return;
+    }
+
+    // Checking the password for the admin
+    if (isAdminLogin && adminPassword !== '12345') {
+      setLoginError('סיסמת מנהל שגויה');
       return;
     }
 
     setIsLoggingIn(true);
     setLoginError(null);
 
+    // If this is an admin, force the login admin and the role Lecturer (to give a VIP rating)
+    const payloadUserId = isAdminLogin ? 'admin' : usernameInput.trim();
+    const payloadRole = isAdminLogin ? 'Lecturer' : selectedRole;
+
     try {
-      // Fire the request using the exact object model expected by UserLoginPayload
       const response = await axios.post('http://localhost:8000/api/users/login', {
-        app_user_id: usernameInput.trim(),
-        role: selectedRole // Sends exactly "Student" or "Lecturer"
+        app_user_id: payloadUserId,
+        role: payloadRole
       });
 
       if (response.data && response.data.status === 'success') {
-        // Extract the verified user dictionary built on lines 167 & 182 of main.py
-        setCurrentUser(response.data.user);
+        const userData = response.data.user;
         
-        // Auto-route to the main dashboard map layer upon success
+        // Embed the secret admin flag into the session
+        if (isAdminLogin) {
+          userData.isAdmin = true;
+        }
+        
+        setCurrentUser(userData);
         setActiveTab('map'); 
       } else {
         setLoginError('ההתחברות נכשלה. אנא בדוק את פרטי המשתמש.');
@@ -204,55 +217,88 @@ function App() {
           </div>
 
           {/* Login Credentials Card Form */}
-          <form onSubmit={handleLoginSubmit} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xl w-full space-y-5">
+          <form onSubmit={handleLoginSubmit} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xl w-full space-y-5 text-right">
             <h2 className="text-lg font-semibold text-gray-800 text-center pb-2 border-b border-gray-100">
               התחברות למערכת כיתות פנויות
             </h2>
 
-            {/* Error Message Box */}
             {loginError && (
               <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs font-semibold text-red-600 text-center">
                 ⚠️ {loginError}
               </div>
             )}
 
-            {/* User ID Input Field */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">מזהה משתמש (User ID)</label>
-              <input 
-                type="text" 
-                placeholder="e.g., student_biu_12345"
-                value={usernameInput}
-                onChange={(e) => setUsernameInput(e.target.value)}
-                disabled={isLoggingIn}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#006937] focus:border-transparent font-mono text-sm transition-all bg-gray-50/50"
+            {/* Administrator Checkbox */}
+            <div className="flex items-center justify-end gap-2 px-1">
+              <label htmlFor="adminCheck" className="text-sm font-semibold text-gray-600 cursor-pointer">
+                כניסה כמנהל מערכת (Admin)
+              </label>
+              <input
+                type="checkbox"
+                id="adminCheck"
+                checked={isAdminLogin}
+                onChange={(e) => {
+                  setIsAdminLogin(e.target.checked);
+                  setLoginError(null);
+                }}
+                className="w-4 h-4 accent-[#006937] rounded cursor-pointer"
               />
             </div>
 
-            {/* Role Choice Switch Segmented Control */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">תפקיד בקמפוס (Role)</label>
-              <div className="grid grid-cols-2 gap-2 bg-gray-100 p-1.5 rounded-xl text-sm font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setSelectedRole('Student')}
+            {isAdminLogin ? (
+              /* Password field (for admin only) */
+              <div className="space-y-1.5 animate-fadeIn">
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">סיסמה</label>
+                <input 
+                  type="password" 
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
                   disabled={isLoggingIn}
-                  className={`py-2 rounded-lg transition-all ${selectedRole === 'Student' ? 'bg-white text-[#006937] shadow-sm' : 'text-gray-500'}`}
-                >
-                  👨‍🎓 סטודנט/ית
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedRole('Lecturer')}
-                  disabled={isLoggingIn}
-                  className={`py-2 rounded-lg transition-all ${selectedRole === 'Lecturer' ? 'bg-white text-[#006937] shadow-sm' : 'text-gray-500'}`}
-                >
-                  👨‍🏫 מרצה
-                </button>
+                  placeholder="•••••"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#006937] bg-gray-50/50 font-mono text-sm text-left transition-all"
+                  dir="ltr"
+                />
               </div>
-            </div>
+            ) : (
+              /* Standard fields (for regular users only) */
+              <div className="space-y-5 animate-fadeIn">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">מזהה משתמש (User ID)</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g., student_biu_12345"
+                    value={usernameInput}
+                    onChange={(e) => setUsernameInput(e.target.value)}
+                    disabled={isLoggingIn}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#006937] font-mono text-sm transition-all bg-gray-50/50 text-left"
+                    dir="ltr"
+                  />
+                </div>
 
-            {/* Authorize Action Button */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">תפקיד בקמפוס (Role)</label>
+                  <div className="grid grid-cols-2 gap-2 bg-gray-100 p-1.5 rounded-xl text-sm font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRole('Student')}
+                      disabled={isLoggingIn}
+                      className={`py-2 rounded-lg transition-all ${selectedRole === 'Student' ? 'bg-white text-[#006937] shadow-sm' : 'text-gray-500'}`}
+                    >
+                      👨‍🎓 סטודנט/ית
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRole('Lecturer')}
+                      disabled={isLoggingIn}
+                      className={`py-2 rounded-lg transition-all ${selectedRole === 'Lecturer' ? 'bg-white text-[#006937] shadow-sm' : 'text-gray-500'}`}
+                    >
+                      👨‍🏫 מרצה
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={isLoggingIn}
@@ -336,40 +382,49 @@ function App() {
                   </button>
                 </div>
 
-                {/* Simulation Controls Panel (YOUR ORIGINAL RADIOS & LOGIC PRESERVED) */}
-                <section className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
-                  <h3 className="text-base font-semibold text-gray-800 mb-3">מערכת בקרת סימולציה</h3>
-                  
-                  <div className="flex flex-col gap-2.5 mb-4">
-                    {[
-                      { id: 1, label: 'Scenario 1: Basic Flow' },
-                      { id: 2, label: 'Scenario 2: Conflict' },
-                      { id: 3, label: 'Scenario 3: Spam Attack' },
-                      { id: 4, label: 'Scenario 4: VIP Pass' }
-                    ].map((scenario) => (
-                      <label key={scenario.id} className="flex items-center gap-3 cursor-pointer text-sm font-medium text-gray-600 bg-gray-50 p-2.5 rounded-xl border border-gray-100 hover:bg-gray-100/50 transition-all">
-                        <input 
-                          type="radio" 
-                          name="scenario" 
-                          className="accent-[#006937] h-4 w-4"
-                          checked={selectedScenario === scenario.id}
-                          onChange={() => setSelectedScenario(scenario.id)}
-                          disabled={isSimulationActive}
-                        />
-                        <span>{scenario.label}</span>
-                      </label>
-                    ))}
-                  </div>
+                {/* Simulation Controls Panel (Admin only) */}
+                {currentUser?.isAdmin && (
+                  <section className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                    <h3 className="text-base font-semibold text-gray-800 mb-3">מערכת בקרת סימולציה</h3>
+                    
+                    <div className="flex flex-col gap-2.5 mb-4">
+                      {[
+                        { id: 1, label: 'Scenario 1: Basic Flow' },
+                        { id: 2, label: 'Scenario 2: Conflict' },
+                        { id: 3, label: 'Scenario 3: Spam Attack' },
+                        { id: 4, label: 'Scenario 4: VIP Pass' }
+                      ].map((scenario) => (
+                        <label key={scenario.id} className="flex items-center gap-3 cursor-pointer text-sm font-medium text-gray-600 bg-gray-50 p-2.5 rounded-xl border border-gray-100 hover:bg-gray-100/50 transition-all">
+                          <input 
+                            type="radio" 
+                            name="scenario" 
+                            className="accent-[#006937] h-4 w-4"
+                            checked={selectedScenario === scenario.id}
+                            onChange={() => setSelectedScenario(scenario.id)}
+                            disabled={isSimulationActive}
+                          />
+                          <span>{scenario.label}</span>
+                        </label>
+                      ))}
+                    </div>
 
-                  <button 
-                    onClick={handleToggleSimulation}
-                    disabled={isStartingEngine}
-                    className="w-full text-white py-3 px-4 rounded-xl text-base font-semibold tracking-wide shadow-sm transition-all"
-                    style={{ backgroundColor: isSimulationActive ? '#E24B4A' : '#006937' }}
+                    <button 
+                      onClick={handleToggleSimulation}
+                      disabled={isStartingEngine}
+                      className="w-full text-white py-3 px-4 rounded-xl text-base font-semibold tracking-wide shadow-sm transition-all"
+                      style={{ backgroundColor: isSimulationActive ? '#E24B4A' : '#006937' }}
+                    >
+                      {isStartingEngine ? '⏳ Starting Engine...' : isSimulationActive ? '⏹ עצור סימולציה' : '▶ הפעל מנוע סימולציה'}
+                    </button>
+                    <button 
+                    onClick={() => clearLogs()}
+                    disabled={isSimulationActive || isClearingLogs}
+                    className="w-full mt-3 bg-gray-50 hover:bg-[#FCEBEB] text-gray-500 hover:text-[#E24B4A] border border-gray-200 hover:border-[#E24B4A]/30 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isStartingEngine ? '⏳ Starting Engine...' : isSimulationActive ? '⏹ עצור סימולציה' : '▶ הפעל מנוע סימולציה'}
+                    {isClearingLogs ? '⏳ מנקה נתונים...' : '🗑️ נקה היסטוריית דיווחים (Clear Logs)'}
                   </button>
-                </section>
+                  </section>
+                )}
 
                 {/* =========================================================================
                   LIVE ROOMS OVERVIEW (Brings back 'rooms', 'roomsLoading', & 'roomsError')
@@ -428,57 +483,48 @@ function App() {
                   </div>
                 </section>
                     
-                {/* Real-Time Terminal Output Log (YOUR ORIGINAL SYSTEM LOOP PRESERVED) */}
-                <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> עדכוני קונצנזוס מהשטח
-                  </h3>
-                  
-                  <div 
-                    ref={terminalContainerRef}
-                    style={{
-                      backgroundColor: '#1e1e1e',
-                      borderRadius: '16px',
-                      padding: '16px',
-                      height: '260px',
-                      minHeight: '260px',
-                      maxHeight: '260px',
-                      overflowY: 'auto',
-                      fontFamily: '"Courier New", Courier, monospace',
-                      fontSize: '12px',
-                      boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)',
-                      direction: 'ltr'
-                    }}
-                  >
-                    {(!logs || logs.length === 0) && (
-                      <p style={{ color: '#888', fontStyle: 'italic', margin: 0 }}>
-                        &gt; Terminal idle. Start the simulation engine to view crowdsourced agent reports...
-                      </p>
-                    )}
-
-                    {logs?.map((log: any) => {
-                      const roomDetails = CAMPUS_ROOM_MAP[log.room_id];
-                      return (
-                        <div key={log.id || log.timestamp} style={{ marginBottom: '8px', lineHeight: '1.4', color: getLogColor(log.type) }}>
-                          <span style={{ color: '#888' }}>[{log.timestamp}]</span>{' '}
-                          {roomDetails ? (
-                            <>
-                              סוכן <strong>{log.agent_id}</strong> בבניין <strong>{roomDetails.b_code}</strong>, חדר <strong>{roomDetails.room}</strong>: {log.action}
-                            </>
-                          ) : (
-                            <>
-                              סוכן <strong>{log.agent_id}</strong> במזהה כיתה <strong>#{log.room_id}</strong>: {log.action}
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
+                {/* Real-Time Terminal Output Log (Admin only) */}
+                {currentUser?.isAdmin && (
+                  <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> עדכוני קונצנזוס מהשטח
+                    </h3>
                     
+                    <div 
+                      ref={terminalContainerRef}
+                      style={{
+                        backgroundColor: '#1e1e1e',
+                        borderRadius: '16px',
+                        padding: '16px',
+                        height: '260px',
+                        minHeight: '260px',
+                        maxHeight: '260px',
+                        overflowY: 'auto',
+                        fontFamily: '"Courier New", Courier, monospace',
+                        fontSize: '12px',
+                        boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)',
+                        direction: 'ltr'
+                      }}
+                    >
+                      {(!logs || logs.length === 0) && (
+                        <p style={{ color: '#888', fontStyle: 'italic', margin: 0 }}>
+                          &gt; Terminal idle. Start the simulation engine to view crowdsourced agent reports...
+                        </p>
+                      )}
+
+                      {logs?.map((log: any) => (
+                        <div key={log.id || log.timestamp} style={{ marginBottom: '12px', lineHeight: '1.5', color: getLogColor(log.type), fontFamily: '"Courier New", Courier, monospace', direction: 'ltr', textAlign: 'left' }}>
+                          <div>📡 <span style={{ color: '#888' }}>[{log.timestamp}]</span> User <strong>{log.agent_id}</strong> (Tr: {log.trust?.toFixed(2) || '0.50'}) | Room {log.building}-{log.room} | Report: [{log.status || 'UNKNOWN'}]</div>
+                          <div style={{ color: '#78cde6', marginLeft: '24px', fontSize: '11px' }}>↳ 🧠 {log.message}</div>
+                        </div>
+                      ))}
+                      
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-2 text-right font-semibold">
+                      סטטוס טרמינל: {isSimulationActive ? '🔴 Live Feed Streaming' : '⚪ Offline'}
+                    </p>
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-2 text-right font-semibold">
-                    סטטוס טרמינל: {isSimulationActive ? '🔴 Live Feed Streaming' : '⚪ Offline'}
-                  </p>
-                </div>
+                )}
 
               </div>
             )}
@@ -664,6 +710,51 @@ function App() {
                     <svg className="w-7 h-7 mx-auto block text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12l3 5-9 12L3 8z" /><path d="M3 8h18" /><path d="M9 3 7.5 8 12 20" /><path d="M15 3l1.5 5L12 20" /></svg>
                     <span className="text-[9px] font-semibold text-gray-400">50 דיווחים</span>
                   </div>
+                  <div className="mt-6 border-t border-gray-100 pt-5 text-right animate-fadeIn">
+                  <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-[#006937]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    היסטוריית דיווחים
+                  </h3>
+
+                  {isLoadingHistory ? (
+                    <div className="text-center py-4 text-xs text-gray-400 font-semibold animate-pulse">
+                      טוען היסטוריה...
+                    </div>
+                  ) : !userHistory || userHistory.length === 0 ? (
+                    <div className="text-center py-6 bg-gray-50 rounded-2xl border border-gray-100 text-gray-400 text-xs font-semibold">
+                      טרם בוצעו דיווחים במערכת
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2.5 max-h-48 overflow-y-auto pr-1">
+                      {userHistory.map((report: any, index: number) => (
+                        <div key={index} className="flex justify-between items-center bg-gray-50 border border-gray-100 p-3 rounded-xl shadow-sm transition-all hover:bg-gray-100/50">
+                          
+                          <div className="flex flex-col text-right">
+                            <span className="text-sm font-semibold text-gray-800">
+                              בניין {report.building_number} | כיתה {report.room_number}
+                            </span>
+                            <span className="text-[10px] text-gray-400 font-semibold mt-0.5" dir="ltr">
+                              {report.timestamp}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-md border shadow-sm ${
+                              report.status === 'FREE'
+                                ? 'bg-[#E1F5EE] text-[#006937] border-[#006937]/20'
+                                : 'bg-[#FCEBEB] text-[#E24B4A] border-[#E24B4A]/20'
+                            }`}>
+                              {report.status === 'FREE' ? 'פנוי' : 'תפוס'}
+                            </span>
+                          </div>
+
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 </div>
               </div>
             )}

@@ -32,7 +32,7 @@ class DatabaseService:
         """Loads all users and their corresponding Trust Scores."""
         users = {}
         with self.engine.connect() as conn:
-            res = conn.execute(text("SELECT id, app_user_id, role, trust_score, tier FROM users"))
+            res = conn.execute(text("SELECT id, app_user_id, role, trust_score, tier FROM users WHERE app_user_id LIKE 'U%'"))
             for row in res:
                 users[row[1]] = {
                     "db_id": row[0],  # Internal database ID (number)
@@ -87,30 +87,39 @@ class DatabaseService:
             
             return "BUSY" if res else "FREE"
         
-    # New methods for report history
+    def update_report_message(self, report_id, message):
+        """Saves the logic engine's thought process directly into the report."""
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE report_history 
+                SET engine_message = :msg 
+                WHERE id = :id
+            """), {"msg": message, "id": report_id})
 
     def add_report_to_history(self, user_db_id, room_db_id, status, trust):
-        """Saves raw report to the database."""
-        with self.engine.connect() as conn:
-            conn.execute(text("""
+        """Saves raw report to the database and returns its ID."""
+        with self.engine.begin() as conn:
+            res = conn.execute(text("""
                 INSERT INTO report_history (user_id, room_id, reported_status, trust_at_report)
                 VALUES (:uid, :rid, :stat, :trust)
+                RETURNING id
             """), {"uid": user_db_id, "rid": room_db_id, "stat": status, "trust": trust})
-            conn.commit()
+            return res.fetchone()[0]
 
    
     def get_pending_reports(self, room_db_id):
         """Only takes ACTIVE reports to calculate consensus."""
         with self.engine.connect() as conn:
             res = conn.execute(text("""
-                SELECT user_id, reported_status, trust_at_report 
-                FROM report_history 
-                WHERE room_id = :rid 
-                AND is_active = TRUE 
-                AND created_at >= NOW() - INTERVAL '15 minutes'
-                ORDER BY created_at ASC
+                SELECT rh.user_id, u.app_user_id, rh.reported_status, rh.trust_at_report 
+                FROM report_history rh
+                JOIN users u ON rh.user_id = u.id
+                WHERE rh.room_id = :rid 
+                AND rh.is_active = TRUE 
+                AND rh.created_at >= NOW() - INTERVAL '15 minutes'
+                ORDER BY rh.created_at ASC
             """), {"rid": room_db_id})
-            return [{"user_id": r[0], "status": r[1], "trust": r[2]} for r in res]
+            return [{"user_id": r[0], "app_user_id": r[1], "status": r[2], "trust": r[3]} for r in res]
 
     def clear_room_history(self, room_db_id):
         """Now we don't delete logs, we just turn them off for math."""
@@ -132,13 +141,10 @@ class DatabaseService:
         # Use begin() for an automatic transaction (everything will be done at once)
         with self.engine.begin() as conn:
             
-            #2. ONE mega-request to clear the database (save 5 network hops!)
+            #2. ONE request to clear the database (not real users' history)
             conn.execute(text("""
-                TRUNCATE TABLE report_history CASCADE;
+                DELETE FROM users WHERE app_user_id LIKE 'U%';
                 TRUNCATE TABLE occupancy_status CASCADE;
-                TRUNCATE TABLE users CASCADE;
-                ALTER SEQUENCE users_id_seq RESTART WITH 1;
-                ALTER SEQUENCE report_history_id_seq RESTART WITH 1;
                 ALTER SEQUENCE occupancy_status_id_seq RESTART WITH 1;
             """))
 
@@ -156,6 +162,16 @@ class DatabaseService:
                 """),
                 users_to_insert 
             )
+        
+    def clear_all_history(self):
+        """Completely clears the report history and room statuses (clear button for admins)."""
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                TRUNCATE TABLE report_history CASCADE;
+                ALTER SEQUENCE report_history_id_seq RESTART WITH 1;
+                TRUNCATE TABLE occupancy_status CASCADE;
+                ALTER SEQUENCE occupancy_status_id_seq RESTART WITH 1;
+            """))
         
     def get_current_rooms(self):
         """Gets current room statuses for the frontend with a fallback to the schedule."""
@@ -194,29 +210,37 @@ class DatabaseService:
     def get_recent_logs(self):
         """Gets the latest logs for the terminal."""
         with self.engine.connect() as conn:
+
             res = conn.execute(text("""
                 SELECT rh.id, 
                        TO_CHAR(rh.created_at, 'HH24:MI:SS') as time_str, 
                        u.app_user_id, 
+                       b.code as building,
                        r.room_number, 
-                       rh.reported_status
+                       rh.reported_status,
+                       rh.trust_at_report,
+                       rh.engine_message
                 FROM report_history rh
                 JOIN users u ON rh.user_id = u.id
                 JOIN rooms r ON rh.room_id = r.id
+                JOIN buildings b ON r.building_id = b.id
                 ORDER BY rh.created_at DESC
                 LIMIT 50
             """))
             
             logs = []
             for row in res:
-                status = row[4]
+                status = row[5]
                 log_type = "success" if status == "FREE" else ("warning" if status == "BUSY" else "info")
                 logs.append({
                     "id": str(row[0]),
                     "timestamp": row[1],
                     "agent_id": row[2],
-                    "room_id": str(row[3]),
-                    "action": f"reported {status}",
+                    "building": str(row[3]),
+                    "room": str(row[4]),
+                    "status": status,
+                    "trust": float(row[6]) if row[6] is not None else 0.50,
+                    "message": str(row[7]) if row[7] else "Pending...", 
                     "type": log_type
                 })
             return logs[::-1]
@@ -333,6 +357,34 @@ class DatabaseService:
                     "room_number": str(row[2]),
                     "next_class_at": str(row[3]) if row[3] else "No more classes today",
                     "free_for_minutes": int(row[4])
+                }
+                for row in res
+            ]
+        
+    def get_user_report_history(self, app_user_id: str):
+        """Gets the report history of a specific user for display in the profile."""
+        with self.engine.connect() as conn:
+            res = conn.execute(text("""
+                SELECT 
+                    b.code as building_number,
+                    r.room_number,
+                    rh.reported_status,
+                    TO_CHAR(rh.created_at, 'DD/MM/YYYY HH24:MI') as formatted_date
+                FROM report_history rh
+                JOIN users u ON rh.user_id = u.id
+                JOIN rooms r ON rh.room_id = r.id
+                JOIN buildings b ON r.building_id = b.id
+                WHERE u.app_user_id = :uid
+                ORDER BY rh.created_at DESC
+                LIMIT 50
+            """), {"uid": app_user_id})
+            
+            return [
+                {
+                    "building_number": str(row[0]),
+                    "room_number": str(row[1]),
+                    "status": row[2],
+                    "timestamp": row[3]
                 }
                 for row in res
             ]

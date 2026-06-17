@@ -112,7 +112,7 @@ def run_seed():
             """
             conn.execute(text(query), params)
             conn.commit()
-            print(f"      ... загружено {min(i + chunk_size, total_events)} из {total_events} занятий")
+            print(f"      ... uploaded {min(i + chunk_size, total_events)} from {total_events} events")
 
         # 4. Load user data
         print("[4/4] Processing users...")

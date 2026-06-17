@@ -18,6 +18,8 @@ export const useSubmitReport = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      queryClient.invalidateQueries({ queryKey: ['userHistory'] })
+      queryClient.invalidateQueries({ queryKey: ['simulationLogs'] })
     },
   })
 }

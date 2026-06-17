@@ -61,7 +61,8 @@ CREATE TABLE report_history (
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     reported_status VARCHAR(20),
     trust_at_report DECIMAL(5, 2), 
-    is_active BOOLEAN DEFAULT TRUE, -- НОВОЕ ПОЛЕ!
+    is_active BOOLEAN DEFAULT TRUE,
+    engine_message VARCHAR(500) DEFAULT 'Pending...',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

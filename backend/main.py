@@ -104,8 +104,7 @@ async def run_simulation_engine():
                             user_data["trust"] = max(0.0, min(1.0, user_data["trust"] + trust_delta))
 
                     # Terminal output for developers
-                    print(f"📡 [Time: {env.now:03d}] User {user_data['id']} (Tr: {user_data['trust']:.2f}) | Room {target_room['room']} | Report: [{reported_status}] | 🧠 {result['event_msg']}", flush=True)
-                    
+                    print(f"📡 [Time: {env.now:03d}] User {user_data['id']} (Tr: {user_data['trust']:.2f}) | Room {target_room['b_code']}-{target_room['room']} | Report: [{reported_status}] | 🧠 {result['event_msg']}", flush=True)
                 except Exception as inner_e:
                     print(f"❌ DB Error for Agent {user_data['id']}: {inner_e}", flush=True)
                 
@@ -197,6 +196,8 @@ async def stop_simulation():
 async def user_login(payload: UserLoginPayload):
     """Registration or login of a real user"""
     try:
+        response_data = None # Create an empty variable for the response
+        
         with db.engine.begin() as conn:
             user = conn.execute(
                 text("SELECT role, trust_score, tier, successful_reports FROM users WHERE app_user_id = :uid"),
@@ -217,7 +218,8 @@ async def user_login(payload: UserLoginPayload):
                     "tier": initial_tier
                 })
                 
-                return {
+                # Write the data, but do NOT return
+                response_data = {
                     "status": "success",
                     "user": {
                         "app_user_id": payload.app_user_id,
@@ -227,18 +229,22 @@ async def user_login(payload: UserLoginPayload):
                         "pioneer_rule_unlocked": (payload.role == "Lecturer")
                     }
                 }
-            
-            role, trust_score, tier, successful_reports = user
-            return {
-                "status": "success",
-                "user": {
-                    "app_user_id": payload.app_user_id,
-                    "role": role,
-                    "tier": tier,
-                    "trust_score": float(trust_score),
-                    "pioneer_rule_unlocked": (tier != "Newbie" or role == "Lecturer")
+            else:
+                role, trust_score, tier, successful_reports = user
+                # Write the data, but do NOT return
+                response_data = {
+                    "status": "success",
+                    "user": {
+                        "app_user_id": payload.app_user_id,
+                        "role": role,
+                        "tier": tier,
+                        "trust_score": float(trust_score),
+                        "pioneer_rule_unlocked": (tier != "Newbie" or role == "Lecturer")
+                    }
                 }
-            }
+                
+        return response_data
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -297,8 +303,8 @@ async def submit_real_user_report(payload: RealUserReport):
 @app.get("/api/rooms/search")
 async def search_rooms(min_minutes: int = 10, building: str = "הכל"):
     """
-    Эндпоинт для расширенного поиска на фронтенде (חיפוש וסינון מתקדם).
-    Принимает минимальное количество свободных минут и номер корпуса.
+    Endpoint for advanced front-end search (חיפוש וסינון מתקדם).
+    Accepts a minimum number of available minutes and a building number.
     """
     try:
         results = db.search_advanced_rooms(min_minutes, building)
@@ -313,4 +319,32 @@ async def search_rooms(min_minutes: int = 10, building: str = "הכל"):
         }
     except Exception as e:
         print(f"❌ Error in /api/rooms/search: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/api/users/{app_user_id}/history")
+async def get_user_history(app_user_id: str):
+    """Returns the report history for a specific user."""
+    try:
+        history = db.get_user_report_history(app_user_id)
+        return {
+            "status": "success",
+            "count": len(history),
+            "reports": history
+        }
+    except Exception as e:
+        print(f"❌ Error in /api/users/{app_user_id}/history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/api/simulation/clear-logs")
+async def clear_simulation_logs():
+    """Clears all history and room statuses upon admin request."""
+    # Prevent accidental clicks while the engine is running
+    if IS_ENGINE_RUNNING:
+        raise HTTPException(status_code=400, detail="Stop the simulation first!")
+        
+    try:
+        db.clear_all_history()
+        return {"status": "success", "message": "History cleared!"}
+    except Exception as e:
+        print(f"❌ Error clearing logs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
