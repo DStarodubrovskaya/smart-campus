@@ -35,6 +35,7 @@ function App() {
   const [adminPassword, setAdminPassword] = useState<string>('');
 
   const [currentUser, setCurrentUser] = useState<any | null>(null);
+  const [showLogout, setShowLogout] = useState(false)
 
   const [activeTab, setActiveTab] = useState<'map' | 'search' | 'profile' | 'report'>('map');
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -61,7 +62,7 @@ function App() {
   const uniqueBuildings = rooms 
     ? Array.from(new Set(rooms.map(r => r.building_number))).filter(Boolean).sort()
     : [];
-    const statusCounts = (() => {
+  const statusCounts = (() => {
     let free = 0, busy = 0
       for (const r of rooms ?? []) {
         if (r.occupancy_status === 'FREE') free++
@@ -69,7 +70,17 @@ function App() {
         }
       return { total: (rooms ?? []).length, free, busy }
     })()
-    // --- Отчёт о занятости ---
+  const [mapBuildingQuery, setMapBuildingQuery] = useState('')
+  const [showMapBuildingList, setShowMapBuildingList] = useState(false)
+  const [selectedBuilding, setSelectedBuilding] = useState('')
+  const filteredMapBuildings = uniqueBuildings
+    .filter((b) => b.startsWith(mapBuildingQuery.trim()))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const [showFilter, setShowFilter] = useState(false)
+  const [amenityFilters, setAmenityFilters] = useState<Record<string, boolean>>({})
+
+  const visibleRooms = selectedBuilding ? (rooms ?? []).filter((r) => r.building_number === selectedBuilding) : (rooms ?? [])
+    // --- employment report ---
   const [reportBuilding, setReportBuilding] = useState<string>('')
   const [reportRoomId, setReportRoomId] = useState<number | null>(null)
   const [reportStatus, setReportStatus] = useState<'FREE' | 'BUSY' | null>(null)
@@ -78,6 +89,11 @@ function App() {
   const filteredBuildings = uniqueBuildings.filter((b) => b.includes(buildingQuery.trim()))
   const [roomQuery, setRoomQuery] = useState('')
   const [showRoomList, setShowRoomList] = useState(false)
+  const [submittedStatus, setSubmittedStatus] = useState<'FREE' | 'BUSY' | null>(null)
+  const [submittedRoom, setSubmittedRoom] = useState<string>('')
+  const [submittedRoomId, setSubmittedRoomId] = useState<number | null>(null)
+  const [amenities, setAmenities] = useState<Record<string, boolean>>({})
+  const [amenitiesDone, setAmenitiesDone] = useState(false)
   const {
     mutate: submitReport,
     isPending: isSubmittingReport,
@@ -97,7 +113,7 @@ function App() {
     setActiveTab('report')
   }
 
-    const handleSubmitReport = () => {
+      const handleSubmitReport = () => {
     if (!currentUser || reportRoomId == null || !reportStatus) return
     submitReport(
       {
@@ -107,6 +123,11 @@ function App() {
       },
       {
         onSuccess: () => {
+          setSubmittedStatus(reportStatus)
+          setSubmittedRoom(roomQuery)
+          setSubmittedRoomId(reportRoomId)
+          setAmenities({})
+          setAmenitiesDone(false)
           setReportBuilding('')
           setBuildingQuery('')
           setReportRoomId(null)
@@ -203,7 +224,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f5faf0] font-['Assistant',sans-serif] text-gray-800 flex flex-col pb-24 selection:bg-[#006937]/20">
+    <div dir="rtl" className="min-h-screen bg-[#f5faf0] font-['Assistant',sans-serif] text-gray-800 flex flex-col pb-24 selection:bg-[#006937]/20">
       
       {/* ==========================================
           GATEKEEPER VIEW: LOGIN SCREEN
@@ -322,10 +343,46 @@ function App() {
           {/* 1. WIREFRAME TOP HEADER (Screen 2 Requirement) */}
             <header className="bg-[#004128] text-white px-5 py-3 shadow-md sticky top-0 z-50 flex justify-between items-center">
             <img src={logoLight} alt="Smart Campus" className="h-13" />
-            <span className="text-xs bg-[#006937]/20 text-[#78cde6] px-3 py-1 rounded-full font-semibold border border-[#006937]/30">
-              אוניברסיטת בר-אילן
-            </span>
+            <button
+              onClick={() => setShowLogout(true)}
+              className="bg-[#78cde6] text-[#063b4d] px-3 py-1.5 rounded-full font-bold text-xs flex items-center gap-1.5 hover:bg-[#9bd9ec] transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>
+              יציאה
+            </button>
           </header>
+                    {showLogout && (
+            <div
+              className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-6"
+              onClick={() => setShowLogout(false)}
+            >
+              <div
+                dir="rtl"
+                className="bg-white rounded-3xl p-6 w-full max-w-xs text-center space-y-4 shadow-xl animate-fadeIn"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="w-14 h-14 bg-[#78cde6]/20 text-[#2f8fb3] rounded-full flex items-center justify-center mx-auto">
+                  <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>
+                </div>
+                <h3 className="text-lg font-bold text-[#004128]">עוזב/ת אותנו?</h3>
+                <p className="text-sm text-gray-500 font-medium"> נשמח לראותך שוב בקמפוס.</p>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => { setCurrentUser(null); setShowLogout(false); }}
+                    className="flex-1 bg-[#E24B4A] text-white py-2.5 rounded-xl font-bold text-sm"
+                  >
+                    יציאה
+                  </button>
+                  <button
+                    onClick={() => setShowLogout(false)}
+                    className="flex-1 bg-gray-100 text-gray-600 py-2.5 rounded-xl font-bold text-sm"
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <div dir="rtl" className="bg-white px-5 py-3 border-b border-gray-100">
             <span className="text-lg font-semibold text-[#004128]">שלום!  {currentUser.app_user_id}</span>
           </div>
@@ -354,33 +411,95 @@ function App() {
                   </div>
                 </div>
 
+                {/* Building search above the map (filter will go to the left later) */}
+                                {/* Search + filter row above the map */}
+                <div dir="rtl" className="relative z-20">
+                  <div className="flex items-center gap-2">
+                    {/* Поиск (основной, широкий) */}
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={mapBuildingQuery}
+                        onChange={(e) => { setMapBuildingQuery(e.target.value); setShowMapBuildingList(true); setSelectedBuilding(''); }}
+                        onFocus={() => setShowMapBuildingList(true)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && filteredMapBuildings.length > 0) {
+                            const b = filteredMapBuildings[0]
+                            setSelectedBuilding(b); setMapBuildingQuery(b); setShowMapBuildingList(false)
+                          }
+                        }}
+                        placeholder="חיפוש בניין"
+                        className="w-full pr-4 pl-9 py-2.5 rounded-full border border-gray-200 bg-white text-sm font-semibold text-right focus:outline-none focus:ring-2 focus:ring-[#006937] shadow-sm"
+                      />
+                      {mapBuildingQuery && (
+                        <button onClick={() => { setMapBuildingQuery(''); setSelectedBuilding(''); setShowMapBuildingList(false); }} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" aria-label="נקה חיפוש">✕</button>
+                      )}
+                      {showMapBuildingList && mapBuildingQuery.trim() && (
+                        <div className="absolute z-30 right-0 left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-44 overflow-y-auto">
+                          {filteredMapBuildings.length === 0 ? (
+                            <div className="px-4 py-2 text-xs text-gray-400 font-semibold">לא נמצא בניין כזה</div>
+                          ) : (
+                            filteredMapBuildings.map((b) => (
+                              <button key={b} onClick={() => { setSelectedBuilding(b); setMapBuildingQuery(b); setShowMapBuildingList(false); }} className="w-full text-right px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-[#E1F5EE] hover:text-[#006937] transition-colors">
+                                בניין {b}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Фильтр (поменьше, слева) */}
+                    <div className="relative shrink-0">
+                      <button
+                        onClick={() => setShowFilter((s) => !s)}
+                        className="flex items-center gap-1.5 px-3 py-2.5 rounded-full border border-gray-200 bg-white text-sm font-semibold text-gray-600 shadow-sm hover:bg-gray-50"
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h16M7 12h10M10 19h4" /></svg>
+                        סינון
+                        {Object.values(amenityFilters).filter(Boolean).length > 0 && (
+                          <span className="bg-[#006937] text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                            {Object.values(amenityFilters).filter(Boolean).length}
+                          </span>
+                        )}
+                      </button>
+                      {showFilter && (
+                        <div className="absolute z-30 left-0 mt-1 bg-white border border-gray-200 rounded-2xl shadow-lg p-2 w-52">
+                          {[
+                            { key: 'wifi', label: 'WiFi טוב', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0" /><path d="M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></svg> },
+                            { key: 'quiet', label: 'שקט', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z" /><path d="M16 9l5 6M21 9l-5 6" /></svg> },
+                            { key: 'desk', label: 'שולחן', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 19v-2h12v2" /><path d="M6 17v-6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6" /><path d="M9 21v-2M15 21v-2" /></svg> },
+                            { key: 'computers', label: 'כיתת מחשבים', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg> },
+                          ].map((opt) => {
+                            const active = !!amenityFilters[opt.key]
+                            return (
+                              <button
+                                key={opt.key}
+                                onClick={() => setAmenityFilters((f) => ({ ...f, [opt.key]: !f[opt.key] }))}
+                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-colors ${active ? 'bg-[#E1F5EE] text-[#006937]' : 'text-gray-600 hover:bg-gray-50'}`}
+                              >
+                                <span className={active ? 'text-[#006937]' : 'text-gray-400'}>{opt.icon}</span>
+                                <span className="flex-1 text-right">{opt.label}</span>
+                                {active && (
+                                  <svg className="w-4 h-4 text-[#006937]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 {/* Interactive Map Component Placeholder - Job 3 Map Frame Container */}
                 <div className="border border-gray-200 rounded-3xl overflow-hidden shadow-sm h-80 relative z-0">
-                <CampusMap rooms={rooms} />
+                <CampusMap rooms={rooms} selectedBuilding={selectedBuilding} />
                 </div>
                 
                 
 
-                {/* Quick Filter Capsule Ribbon (Screen 2 UI Element) */}
-                        {/* Quick Filter Capsule Ribbon (Screen 2 UI Element) */}
-                <div className="flex gap-2 overflow-x-auto pb-1 text-xs font-semibold scrollbar-none">
-                  <button className="bg-[#006937] text-white px-4 py-2 rounded-full shadow-sm inline-flex items-center gap-1.5 whitespace-nowrap">
-                    <span>פנויות</span>
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></svg>
-                  </button>
-                  <button className="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-full inline-flex items-center gap-1.5 whitespace-nowrap">
-                    <span>שקט</span>
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z" /><path d="M22 9l-6 6" /><path d="M16 9l6 6" /></svg>
-                  </button>
-                  <button className="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-full inline-flex items-center gap-1.5 whitespace-nowrap">
-                    <span>קרוב אליי</span>
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11z" /><circle cx="12" cy="10" r="2.5" /></svg>
-                  </button>
-                  <button className="bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-full inline-flex items-center gap-1.5 whitespace-nowrap">
-                    <span>WiFi</span>
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0" /><path d="M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></svg>
-                  </button>
-                </div>
+               
 
                 {/* Simulation Controls Panel (Admin only) */}
                 {currentUser?.isAdmin && (
@@ -710,6 +829,7 @@ function App() {
                     <svg className="w-7 h-7 mx-auto block text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12l3 5-9 12L3 8z" /><path d="M3 8h18" /><path d="M9 3 7.5 8 12 20" /><path d="M15 3l1.5 5L12 20" /></svg>
                     <span className="text-[9px] font-semibold text-gray-400">50 דיווחים</span>
                   </div>
+                  </div>
                   <div className="mt-6 border-t border-gray-100 pt-5 text-right animate-fadeIn">
                   <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
                     <svg className="w-4 h-4 text-[#006937]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -727,36 +847,35 @@ function App() {
                       טרם בוצעו דיווחים במערכת
                     </div>
                   ) : (
-                    <div className="flex flex-col gap-2.5 max-h-48 overflow-y-auto pr-1">
-                      {userHistory.map((report: any, index: number) => (
-                        <div key={index} className="flex justify-between items-center bg-gray-50 border border-gray-100 p-3 rounded-xl shadow-sm transition-all hover:bg-gray-100/50">
-                          
-                          <div className="flex flex-col text-right">
-                            <span className="text-sm font-semibold text-gray-800">
-                              בניין {report.building_number} | כיתה {report.room_number}
-                            </span>
-                            <span className="text-[10px] text-gray-400 font-semibold mt-0.5" dir="ltr">
-                              {report.timestamp}
+                    <div dir="rtl" className="flex flex-col gap-2 max-h-56 overflow-y-auto pr-1">
+                      {userHistory.map((report: any, index: number) => {
+                        const isFree = report.status === 'FREE'
+                        return (
+                          <div
+                            key={index}
+                            className={`flex items-center gap-3 bg-white border border-gray-100 rounded-2xl p-3 transition-all hover:bg-gray-50 border-r-4 ${isFree ? 'border-r-[#006937]' : 'border-r-[#E24B4A]'}`}
+                          >
+                            <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${isFree ? 'bg-[#E1F5EE] text-[#006937]' : 'bg-[#FCEBEB] text-[#E24B4A]'}`}>
+                              {isFree ? (
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+                              ) : (
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0 text-right">
+                              <div className="text-sm font-semibold text-gray-800 truncate">בניין {report.building_number} · כיתה {report.room_number}</div>
+                              <div className="text-[10px] text-gray-400 font-semibold mt-0.5" dir="ltr">{report.timestamp}</div>
+                            </div>
+                            <span className={`text-xs font-bold shrink-0 ${isFree ? 'text-[#006937]' : 'text-[#E24B4A]'}`}>
+                              {isFree ? 'פנוי' : 'תפוס'}
                             </span>
                           </div>
-
-                          <div>
-                            <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-md border shadow-sm ${
-                              report.status === 'FREE'
-                                ? 'bg-[#E1F5EE] text-[#006937] border-[#006937]/20'
-                                : 'bg-[#FCEBEB] text-[#E24B4A] border-[#E24B4A]/20'
-                            }`}>
-                              {report.status === 'FREE' ? 'פנוי' : 'תפוס'}
-                            </span>
-                          </div>
-
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
                 </div>
-              </div>
             )}
                           {/* ==========================================
                 TAB VIEW 4: QUICK REPORT (Screen 6)
@@ -771,19 +890,71 @@ function App() {
                 </div>
 
                 {reportResult ? (
-                                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm text-center space-y-3 animate-fadeIn">
+                submittedStatus === 'FREE' && !amenitiesDone ? (
+                  /* --- Optional mini-survey about Wifi, tabels, airconditional --- */
+                  <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4 animate-fadeIn">
+                    <div className="text-center">
+                      <div className="w-14 h-14 bg-[#E1F5EE] text-[#006937] flex items-center justify-center rounded-full mx-auto mb-2">
+                        <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-800">תודה על הדיווח!</h3>
+                      <p className="text-sm text-gray-500 font-medium mt-1">רוצה להוסיף? איך היה בכיתה {submittedRoom}?</p>
+                    </div>
+
+                    {[
+                      { key: 'wifi', label: 'WiFi', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0" /><path d="M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></svg> },
+                      { key: 'quiet', label: 'שקט', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z" /><path d="M16 9l5 6M21 9l-5 6" /></svg> },
+                      { key: 'seating', label: 'כיסאות נוחים', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 19v-2h12v2" /><path d="M6 17v-6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6" /><path d="M9 21v-2M15 21v-2" /></svg> },
+                    ].map((item) => (
+                      <div key={item.key} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2.5">
+                        <span className="text-sm font-semibold text-gray-700 flex items-center gap-2">{item.icon}{item.label}</span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setAmenities((a) => ({ ...a, [item.key]: true }))}
+                            aria-label="טוב"
+                            className={`w-9 h-9 rounded-full border-2 flex items-center justify-center transition-all ${amenities[item.key] === true ? 'border-[#006937] bg-[#E1F5EE] text-[#006937]' : 'border-gray-200 text-gray-400 hover:border-[#006937]/40'}`}
+                          >
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M7 11v9H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3z" /><path d="M7 11l4-7a2 2 0 0 1 3 1.5V9h4.5a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 18 19H7" /></svg>
+                          </button>
+                          <button
+                            onClick={() => setAmenities((a) => ({ ...a, [item.key]: false }))}
+                            aria-label="לא טוב"
+                            className={`w-9 h-9 rounded-full border-2 flex items-center justify-center transition-all ${amenities[item.key] === false ? 'border-[#E24B4A] bg-[#FCEBEB] text-[#E24B4A]' : 'border-gray-200 text-gray-400 hover:border-[#E24B4A]/40'}`}
+                          >
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 13V4h3a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-3z" /><path d="M17 13l-4 7a2 2 0 0 1-3-1.5V15H5.5a2 2 0 0 1-2-2.3l1.2-6A2 2 0 0 1 6 5h11" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => { console.log('amenities report', { room_id: submittedRoomId, room: submittedRoom, ...amenities }); setAmenitiesDone(true); }}
+                        disabled={Object.keys(amenities).length === 0}
+                        className="flex-1 bg-[#006937] text-white py-2.5 rounded-xl font-bold text-sm disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      >שלח</button>
+                      <button
+                        onClick={() => setAmenitiesDone(true)}
+                        className="flex-1 bg-gray-100 text-gray-600 py-2.5 rounded-xl font-bold text-sm"
+                      >דלג</button>
+                    </div>
+                  </div>
+                ) : (
+                  /* --- Финальный экран благодарности --- */
+                  <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm text-center space-y-3 animate-fadeIn">
                     <div className="w-16 h-16 bg-[#E1F5EE] text-[#006937] flex items-center justify-center rounded-full mx-auto">
                       <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
                     </div>
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-800">תודה על זמנכם!</h3>
+                      <h3 className="text-lg font-bold text-gray-800">תודה על זמנכם!</h3>
                       <p className="text-sm text-gray-500 font-medium mt-1">הדיווח שלך נשלח</p>
                     </div>
                     <div className="flex gap-2 pt-2">
-                      <button onClick={() => { resetReport(); setReportStatus(null); }} className="flex-1 bg-[#006937] text-white py-2.5 rounded-xl font-semibold text-sm">דיווח נוסף</button>
-                      <button onClick={() => setActiveTab('map')} className="flex-1 bg-gray-100 text-gray-600 py-2.5 rounded-xl font-semibold text-sm">חזרה למפה</button>
+                      <button onClick={() => { resetReport(); setReportStatus(null); setAmenitiesDone(false); setSubmittedStatus(null); setAmenities({}); }} className="flex-1 bg-[#006937] text-white py-2.5 rounded-xl font-bold text-sm">דיווח נוסף</button>
+                      <button onClick={() => setActiveTab('map')} className="flex-1 bg-gray-100 text-gray-600 py-2.5 rounded-xl font-bold text-sm">חזרה למפה</button>
                     </div>
                   </div>
+                )
                 ) : (
                     <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm space-y-5">
 
@@ -907,16 +1078,16 @@ function App() {
           )}
 
           {/* 3. PERSISTENT SYSTEM BOTTOM NAVIGATION MENU BAR (Screen Flow Anchor) */}
-          <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 py-2.5 px-6 flex justify-around items-center shadow-2xl z-50 rounded-t-3xl">
+                    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 py-2.5 px-6 flex justify-around items-center shadow-2xl z-50 rounded-t-3xl">
             <button 
-              onClick={() => setActiveTab('profile')} 
-              className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'profile' ? 'text-[#006937] scale-110 font-semibold' : 'text-gray-400 font-semibold'}`}
-            >
+              onClick={() => setActiveTab('map')} 
+              className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'map' ? 'text-[#006937] scale-110 font-semibold' : 'text-gray-400 font-semibold'}`}>
               <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="8" r="4" />
-                <path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" />
+                <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+                <path d="M9 4v14" />
+                <path d="M15 6v14" />
               </svg>
-              <span className="text-[10px]">פרופיל שלי</span>
+              <span className="text-[10px]">מפת קמפוס</span>
             </button>
 
             <button 
@@ -931,14 +1102,14 @@ function App() {
             </button>
 
             <button 
-              onClick={() => setActiveTab('map')} 
-              className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'map' ? 'text-[#006937] scale-110 font-semibold' : 'text-gray-400 font-semibold'}`}>
+              onClick={() => setActiveTab('profile')} 
+              className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'profile' ? 'text-[#006937] scale-110 font-semibold' : 'text-gray-400 font-semibold'}`}
+            >
               <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
-                <path d="M9 4v14" />
-                <path d="M15 6v14" />
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 20c0-4 3.6-6 8-6s8 2 8 6" />
               </svg>
-              <span className="text-[10px]">מפת קמפוס</span>
+              <span className="text-[10px]">פרופיל שלי</span>
             </button>
           </nav>
         </>

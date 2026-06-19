@@ -234,19 +234,13 @@ function BuildingPopup({ building }: { building: ReturnType<typeof aggregateBuil
 }
 interface CampusMapProps {
   rooms: Room[] | undefined
+  selectedBuilding?: string
 }
 
-export default function CampusMap({ rooms }: CampusMapProps) {
+export default function CampusMap({ rooms, selectedBuilding = '' }: CampusMapProps) {
   const buildings = aggregateBuildingStatus(rooms)
-  const [buildingQuery, setBuildingQuery] = useState('')
-  const bq = buildingQuery.trim().toLowerCase()
-  const isSearching = bq !== ''
-
-  const isMatch = (b: (typeof buildings)[number]) =>
-    !isSearching || b.code.toLowerCase().includes(bq) || b.name.toLowerCase().includes(bq)
-
-  // First matching building → target for the smooth pan.
-  const firstMatch = isSearching ? buildings.find((b) => isMatch(b)) : undefined
+  const isSearching = selectedBuilding !== ''
+  const matchTarget = isSearching ? buildings.find((b) => b.code === selectedBuilding) : undefined
 
   return (
     <div style={{ position: 'relative', height: '100%', width: '100%' }}>
@@ -273,59 +267,7 @@ export default function CampusMap({ rooms }: CampusMapProps) {
         .leaflet-control-zoom-in { border-bottom: 1px solid #eee !important; }
       `}</style>
 
-      {/* Building search box overlaid on the map */}
-      <div
-        style={{ position: 'absolute', top: 10, right: 10, zIndex: 1000 }}
-        onMouseDown={(e) => e.stopPropagation()}
-        onDoubleClick={(e) => e.stopPropagation()}
-        onWheel={(e) => e.stopPropagation()}
-      >
-        <div style={{ position: 'relative' }}>
-          <input
-            type="text"
-            value={buildingQuery}
-            onChange={(e) => setBuildingQuery(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-            placeholder="חיפוש בניין"
-            style={{
-              width: 130,
-              boxSizing: 'border-box',
-              padding: '8px 30px 8px 10px',
-              fontSize: 13,
-              fontWeight: 700,
-              border: '1px solid #ddd',
-              borderRadius: 12,
-              direction: 'rtl',
-              textAlign: 'right',
-              outline: 'none',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-              background: '#fff',
-              fontFamily: "'Assistant',sans-serif",
-            }}
-          />
-          {isSearching && (
-            <button
-              onClick={() => setBuildingQuery('')}
-              style={{
-                position: 'absolute',
-                left: 6,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                fontSize: 16,
-                color: '#888',
-                lineHeight: 1,
-                padding: 2,
-              }}
-              aria-label="נקה חיפוש"
-            >
-              ×
-            </button>
-          )}
-        </div>
-      </div>
+      
 
       <MapContainer
         center={CAMPUS_CENTER}
@@ -338,10 +280,10 @@ export default function CampusMap({ rooms }: CampusMapProps) {
         <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
         <MapResizer />
         <ZoomControl position="bottomleft" />
-        <FlyToMatch lat={firstMatch?.lat} lng={firstMatch?.lng} />
+        <FlyToMatch lat={matchTarget?.lat} lng={matchTarget?.lng} />
 
         {buildings.map((building) => {
-          const matched = isMatch(building)
+          const matched = !isSearching || building.code === selectedBuilding
           const baseColor = STATUS_COLORS[building.status] ?? STATUS_COLORS.UNKNOWN
           const color = isSearching && !matched ? STATUS_COLORS.UNKNOWN : baseColor
           return (
