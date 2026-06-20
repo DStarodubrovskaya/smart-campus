@@ -21,6 +21,13 @@ const getStatusStyles = (status: string) => {
     default: return { bg: 'bg-[#F1EFE8]', border: 'border-[#888780]', text: 'text-[#888780]', label: 'לא ידוע' };
   }
 };
+// Formats the "free until" time: strips seconds, or shows a Hebrew note when no classes remain.
+const formatUntil = (t: any) => {
+  const s = String(t ?? '')
+  if (!s.trim() || /no more classes/i.test(s)) return 'אין שיעורים נוספים היום'
+  const m = s.match(/^(\d{1,2}:\d{2})/)
+  return 'עד ' + (m ? m[1] : s)
+}
 
 function App() {
 
@@ -44,6 +51,7 @@ function App() {
 
   const [isSimulationActive, setIsSimulationActive] = useState(false)
   const [selectedScenario, setSelectedScenario] = useState<number>(1)
+  const [showBookingSoon, setShowBookingSoon] = useState(false)
   
 
   // Anchor reference to force our terminal block to auto-scroll down
@@ -72,6 +80,8 @@ function App() {
     })()
   const [mapBuildingQuery, setMapBuildingQuery] = useState('')
   const [showMapBuildingList, setShowMapBuildingList] = useState(false)
+  const [roomListQuery, setRoomListQuery] = useState('')
+  const [showRoomFilter, setShowRoomFilter] = useState(false)
   const [selectedBuilding, setSelectedBuilding] = useState('')
   const filteredMapBuildings = uniqueBuildings
     .filter((b) => b.startsWith(mapBuildingQuery.trim()))
@@ -79,8 +89,23 @@ function App() {
   const [showFilter, setShowFilter] = useState(false)
   const [amenityFilters, setAmenityFilters] = useState<Record<string, boolean>>({})
 
-  const visibleRooms = selectedBuilding ? (rooms ?? []).filter((r) => r.building_number === selectedBuilding) : (rooms ?? [])
-    // --- employment report ---
+  const floorOf = (id: any) => parseInt(String(id).trim()[0], 10) || 0
+  const roomBuildingFilter = (selectedBuilding || mapBuildingQuery).trim()
+  const visibleRooms = (rooms ?? [])
+    .filter((r) => !roomBuildingFilter || String(r.building_number).startsWith(roomBuildingFilter))
+    .filter((r) => !roomListQuery.trim() || String(r.room_id).startsWith(roomListQuery.trim()))
+    .sort((a, b) => {
+       // 1. by building number (ascending)
+      const byBuilding = String(a.building_number).localeCompare(String(b.building_number), undefined, { numeric: true })
+      if (byBuilding !== 0) return byBuilding
+      // 2. by floor (first digit of the room number)
+      const fa = floorOf(a.room_id), fb = floorOf(b.room_id)
+      if (fa !== fb) return fa - fb
+      // 3. by room number within the floor (ascending)
+      return (parseInt(String(a.room_id), 10) || 0) - (parseInt(String(b.room_id), 10) || 0)
+
+    })
+        // --- employment report ---
   const [reportBuilding, setReportBuilding] = useState<string>('')
   const [reportRoomId, setReportRoomId] = useState<number | null>(null)
   const [reportStatus, setReportStatus] = useState<'FREE' | 'BUSY' | null>(null)
@@ -197,6 +222,9 @@ function App() {
     const payloadRole = isAdminLogin ? 'Lecturer' : selectedRole;
 
     try {
+      //to create option for using app on phone for presentation
+     //const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/users/login`, {
+
       const response = await axios.post('http://localhost:8000/api/users/login', {
         app_user_id: payloadUserId,
         role: payloadRole
@@ -245,15 +273,12 @@ function App() {
 
             {loginError && (
               <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs font-semibold text-red-600 text-center">
-                ⚠️ {loginError}
+                 {loginError}
               </div>
             )}
 
             {/* Administrator Checkbox */}
-            <div className="flex items-center justify-end gap-2 px-1">
-              <label htmlFor="adminCheck" className="text-sm font-semibold text-gray-600 cursor-pointer">
-                כניסה כמנהל מערכת (Admin)
-              </label>
+            <div className="flex items-center justify-start gap-2 px-1">
               <input
                 type="checkbox"
                 id="adminCheck"
@@ -264,6 +289,9 @@ function App() {
                 }}
                 className="w-4 h-4 accent-[#006937] rounded cursor-pointer"
               />
+              <label htmlFor="adminCheck" className="text-sm font-semibold text-gray-600 cursor-pointer">
+                כניסה כמנהל מערכת
+              </label>
             </div>
 
             {isAdminLogin ? (
@@ -275,7 +303,6 @@ function App() {
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
                   disabled={isLoggingIn}
-                  placeholder="•••••"
                   className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#006937] bg-gray-50/50 font-mono text-sm text-left transition-all"
                   dir="ltr"
                 />
@@ -284,36 +311,38 @@ function App() {
               /* Standard fields (for regular users only) */
               <div className="space-y-5 animate-fadeIn">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">מזהה משתמש (User ID)</label>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">מזהה משתמש </label>
                   <input 
                     type="text" 
-                    placeholder="e.g., student_biu_12345"
+                    placeholder ="לדוגמה שם שלך "
                     value={usernameInput}
                     onChange={(e) => setUsernameInput(e.target.value)}
                     disabled={isLoggingIn}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#006937] font-mono text-sm transition-all bg-gray-50/50 text-left"
-                    dir="ltr"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#006937] font-mono text-sm transition-all bg-gray-50/50 text-right"
+                    dir="rtr"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">תפקיד בקמפוס (Role)</label>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">תפקיד בקמפוס </label>
                   <div className="grid grid-cols-2 gap-2 bg-gray-100 p-1.5 rounded-xl text-sm font-semibold">
                     <button
                       type="button"
                       onClick={() => setSelectedRole('Student')}
                       disabled={isLoggingIn}
-                      className={`py-2 rounded-lg transition-all ${selectedRole === 'Student' ? 'bg-white text-[#006937] shadow-sm' : 'text-gray-500'}`}
+                      className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${selectedRole === 'Student' ? 'bg-white text-[#006937] shadow-sm' : 'text-gray-500'}`}
                     >
-                      👨‍🎓 סטודנט/ית
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z" /><path d="M6 12v5c0 1 2.7 2.5 6 2.5s6-1.5 6-2.5v-5" /><path d="M22 10v4" /></svg>
+                      סטודנט/ית
                     </button>
                     <button
                       type="button"
                       onClick={() => setSelectedRole('Lecturer')}
                       disabled={isLoggingIn}
-                      className={`py-2 rounded-lg transition-all ${selectedRole === 'Lecturer' ? 'bg-white text-[#006937] shadow-sm' : 'text-gray-500'}`}
+                      className={`py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${selectedRole === 'Lecturer' ? 'bg-white text-[#006937] shadow-sm' : 'text-gray-500'}`}
                     >
-                      👨‍🏫 מרצה
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4h18" /><path d="M4 4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V4" /><path d="M12 14v4M9 21l3-3 3 3" /></svg>
+                      מרצה
                     </button>
                   </div>
                 </div>
@@ -325,7 +354,7 @@ function App() {
               disabled={isLoggingIn}
               className="w-full bg-[#006937] hover:bg-[#158061] text-white py-3.5 rounded-xl text-base font-semibold tracking-wide shadow-md transition-all flex items-center justify-center gap-2 disabled:bg-gray-300"
             >
-              {isLoggingIn ? <>⏳ מאמת נתונים...</> : <>כניסה למערכת 🚀</>}
+              {isLoggingIn ? <> מאמת נתונים...</> : <>כניסה למערכת </>}
             </button>
           </form>
 
@@ -396,17 +425,17 @@ function App() {
               <div className="space-y-4 animate-fadeIn">
                 
                 {/* Wireframe Metric Counters (Screen 2 Requirement) */}
-                  <div dir="rtl" className="flex gap-2">
-                  <div className="flex-1 bg-[#78cde6]/25 text-[#2f8fb3] rounded-full px-3 py-2 flex items-center justify-center gap-1.5">
-                    <span className="text-xs font-semibold">סה״כ כיתות</span>
+                <div dir="rtl" className="flex gap-2">
+                  <div className="flex-1 min-w-0 bg-[#78cde6]/25 text-[#2f8fb3] rounded-full px-2 py-2 flex items-center justify-center gap-1">
+                    <span className="text-xs font-semibold truncate">סה״כ</span>
                     <span className="text-sm font-bold">{statusCounts.total}</span>
                   </div>
-                  <div className="flex-1 bg-[#006937]/15 text-[#006937] rounded-full px-3 py-2 flex items-center justify-center gap-1.5">
-                    <span className="text-xs font-semibold">כיתות פנויות</span>
+                  <div className="flex-1 min-w-0 bg-[#006937]/15 text-[#006937] rounded-full px-2 py-2 flex items-center justify-center gap-1">
+                    <span className="text-xs font-semibold truncate">פנויות</span>
                     <span className="text-sm font-bold">{statusCounts.free}</span>
                   </div>
-                  <div className="flex-1 bg-[#E24B4A]/15 text-[#E24B4A] rounded-full px-3 py-2 flex items-center justify-center gap-1.5">
-                    <span className="text-xs font-semibold">כיתות תפוסות </span>
+                  <div className="flex-1 min-w-0 bg-[#E24B4A]/15 text-[#E24B4A] rounded-full px-2 py-2 flex items-center justify-center gap-1">
+                    <span className="text-xs font-semibold truncate">תפוסות</span>
                     <span className="text-sm font-bold">{statusCounts.busy}</span>
                   </div>
                 </div>
@@ -533,14 +562,14 @@ function App() {
                       className="w-full text-white py-3 px-4 rounded-xl text-base font-semibold tracking-wide shadow-sm transition-all"
                       style={{ backgroundColor: isSimulationActive ? '#E24B4A' : '#006937' }}
                     >
-                      {isStartingEngine ? '⏳ Starting Engine...' : isSimulationActive ? '⏹ עצור סימולציה' : '▶ הפעל מנוע סימולציה'}
+                      {isStartingEngine ? ' Starting Engine...' : isSimulationActive ? ' עצור סימולציה' : ' הפעל מנוע סימולציה'}
                     </button>
                     <button 
                     onClick={() => clearLogs()}
                     disabled={isSimulationActive || isClearingLogs}
                     className="w-full mt-3 bg-gray-50 hover:bg-[#FCEBEB] text-gray-500 hover:text-[#E24B4A] border border-gray-200 hover:border-[#E24B4A]/30 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isClearingLogs ? '⏳ מנקה נתונים...' : '🗑️ נקה היסטוריית דיווחים (Clear Logs)'}
+                    {isClearingLogs ? ' מנקה נתונים...' : ' נקה היסטוריית דיווחים (Clear Logs)'}
                   </button>
                   </section>
                 )}
@@ -551,50 +580,128 @@ function App() {
                 <section className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-base font-semibold text-gray-800">מצב כיתות בזמן אמת</h3>
-                    <span className="text-xs bg-gray-100 text-gray-500 font-semibold px-2 py-0.5 rounded-lg">
-                      {rooms ? `${rooms.length} כיתות מסונכרנות` : 'טוען...'}
-                    </span>
                   </div>
-
+                  {roomBuildingFilter && (
+                    <div className="flex items-center gap-2 mb-4 -mt-1">
+                      <span className="text-xs font-semibold text-gray-400">מציג:</span>
+                      <span className="inline-flex items-center gap-1.5 bg-[#E1F5EE] text-[#006937] text-xs font-bold px-3 py-1 rounded-full">
+                        בניין {roomBuildingFilter}
+                        <button
+                          onClick={() => { setSelectedBuilding(''); setMapBuildingQuery(''); }}
+                          className="hover:text-[#004128] transition-colors"
+                          aria-label="הצג את כל הבניינים"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    </div>
+                  )}
                   {/* Network Loading and Error States */}
                   {roomsLoading && (
                     <div className="text-center py-6 text-sm text-gray-400 font-medium animate-pulse">
-                      ⏳ קורא נתוני תפוסה מ-Supabase...
+                       קורא נתוני תפוסה מ-Supabase...
                     </div>
                   )}
                   
                   {roomsError && (
                     <div className="text-center py-4 bg-red-50 text-red-600 rounded-xl text-xs font-semibold border border-red-100">
-                      ❌ שגיאת רשת: לא ניתן להתחבר לשרת הנתונים.
+                       שגיאת רשת: לא ניתן להתחבר לשרת הנתונים.
                     </div>
                   )}
+                  {/* Search + filter by class */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={roomListQuery}
+                        onChange={(e) => setRoomListQuery(e.target.value)}
+                        placeholder="חיפוש לפי מספר כיתה"
+                        className="w-full pr-4 pl-9 py-2 rounded-full border border-gray-200 bg-gray-50/50 text-sm font-semibold text-right focus:outline-none focus:ring-2 focus:ring-[#006937]"
+                      />
+                      {roomListQuery && (
+                        <button onClick={() => setRoomListQuery('')} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" aria-label="נקה חיפוש">✕</button>
+                      )}
+                    </div>
+
+                    <div className="relative shrink-0">
+                      <button
+                        onClick={() => setShowRoomFilter((s) => !s)}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-gray-200 bg-white text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h16M7 12h10M10 19h4" /></svg>
+                        סינון
+                        {Object.values(amenityFilters).filter(Boolean).length > 0 && (
+                          <span className="bg-[#006937] text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                            {Object.values(amenityFilters).filter(Boolean).length}
+                          </span>
+                        )}
+                      </button>
+                      {showRoomFilter && (
+                        <div className="absolute z-30 left-0 mt-1 bg-white border border-gray-200 rounded-2xl shadow-lg p-2 w-52">
+                          {[
+                            { key: 'wifi', label: 'WiFi טוב', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0" /><path d="M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></svg> },
+                            { key: 'quiet', label: 'שקט', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z" /><path d="M16 9l5 6M21 9l-5 6" /></svg> },
+                            { key: 'desk', label: 'שולחן', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 19v-2h12v2" /><path d="M6 17v-6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6" /><path d="M9 21v-2M15 21v-2" /></svg> },
+                            { key: 'computers', label: 'כיתת מחשבים', icon: <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg> },
+                          ].map((opt) => {
+                            const active = !!amenityFilters[opt.key]
+                            return (
+                              <button
+                                key={opt.key}
+                                onClick={() => setAmenityFilters((f) => ({ ...f, [opt.key]: !f[opt.key] }))}
+                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-colors ${active ? 'bg-[#E1F5EE] text-[#006937]' : 'text-gray-600 hover:bg-gray-50'}`}
+                              >
+                                <span className={active ? 'text-[#006937]' : 'text-gray-400'}>{opt.icon}</span>
+                                <span className="flex-1 text-right">{opt.label}</span>
+                                {active && (
+                                  <svg className="w-4 h-4 text-[#006937]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
                   {/* Real-Time Room Cards Grid Container */}
-                  <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
-                    {rooms?.map((room: any) => {
+                  <div className="grid grid-cols-2 gap-2.5 max-h-72 overflow-y-auto overflow-x-hidden no-scrollbar pr-1">
+                    {visibleRooms.map((room: any) => {
                       // 1. SAFETY SHIELD: Fallback to 'UNKNOWN' if fields are missing so getStatusStyles never crashes
                       const rawStatus = room.occupancy_status || room.status || 'UNKNOWN';
                       const status = getStatusStyles(rawStatus);
 
                       // 2. SAFETY SHIELD: Safe fallbacks for room display text
-                      const displayRoomNumber = room.room || room.room_id || 'מזהה חסר';
-                      const displayBuilding = room.b_code || room.building_code;
+                      const displayRoomNumber = room.room_id || room.room || 'מזהה חסר';
+                      const displayBuilding = room.building_number || room.b_code || room.building_code;
+                      const isFree = String(rawStatus).toUpperCase() === 'FREE';
 
-                      return (
-                        <div 
-                          key={room.room_id || room.id || Math.random().toString()} 
-                          className={`p-3.5 rounded-2xl border ${status.border} ${status.bg} flex flex-col justify-between shadow-sm transition-all hover:scale-[1.02]`}
+                      return ( 
+                         <div 
+                          key={room.id} 
+                          className={`min-w-0 p-3 rounded-2xl border ${status.border} ${status.bg} flex flex-col justify-between shadow-sm`}
                         >
-                          <div className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
+                          <div className="text-[11px] text-gray-400 font-semibold uppercase tracking-wide truncate">
                             {displayBuilding ? `בניין ${displayBuilding}` : 'קמפוס בר אילן'}
                           </div>
-                          <div className="flex justify-between items-end mt-2">
-                            <span className="text-base font-semibold text-gray-800">
+                          <div className="flex justify-between items-end gap-1 mt-1.5">
+                            <span className="text-sm font-semibold text-gray-800 truncate">
                               כיתה {displayRoomNumber}
                             </span>
-                            <span className={`text-xs font-semibold ${status.text} bg-white/80 px-2.5 py-0.5 rounded-lg border border-current/10 shadow-sm`}>
-                              {status.label}
-                            </span>
+                            {isFree ? (
+                              <button
+                                onClick={() => setShowBookingSoon(true)}
+                                className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold text-[#006937] bg-white px-2 py-1 rounded-lg border border-[#006937]/30 hover:bg-[#E1F5EE] transition-colors"
+                              >
+                                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /><path d="M9 16l2 2 4-4" /></svg>
+                                הזמנה
+                              </button>
+                            ) : (
+                              <span className={`shrink-0 text-[11px] font-semibold ${status.text} bg-white/80 px-2 py-0.5 rounded-lg border border-current/10`}>
+                                {status.label}
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
@@ -736,7 +843,7 @@ function App() {
                       <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-1">
                         {searchResponse.results_count === 0 ? (
                           <div className="text-center py-6 text-gray-400 text-sm font-semibold">
-                            לא נמצאו חדרים שעונים על הדרישות 😔
+                            לא נמצאו חדרים שעונים על הדרישות 
                           </div>
                         ) : (
                           searchResponse.rooms.map((room: any) => (
@@ -747,9 +854,14 @@ function App() {
                               </div>
                               <div className="text-left">
                                 <div className="text-lg font-semibold text-[#006937]">{room.free_for_minutes} דק'</div>
-                                <div className="text-[10px] text-gray-400 font-semibold">
-                                  עד: {room.next_class_at}
-                                </div>
+                                <div className="text-[10px] text-gray-400 font-semibold">{formatUntil(room.next_class_at)}</div>
+                                <button
+                                  onClick={() => setShowBookingSoon(true)}
+                                  className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#006937] bg-white px-2 py-1 rounded-lg border border-[#006937]/30 hover:bg-[#E1F5EE] transition-colors"
+                                >
+                                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /><path d="M9 16l2 2 4-4" /></svg>
+                                  הזמנה
+                                </button>
                               </div>
                             </div>
                           ))
@@ -780,18 +892,29 @@ function App() {
                 
                 {/* Identity Badges */}
                 <div className="flex justify-center gap-2 text-xs font-semibold">
-                  <span className="bg-gray-100 text-gray-500 px-3 py-1 rounded-full border border-gray-200/50">
-                    {currentUser.role === 'Student' ? '👨‍🎓 סטודנט/ית' : '👨‍🏫 מרצה'}
+                  <span className="inline-flex items-center gap-1 bg-gray-100 text-gray-500 px-3 py-1 rounded-full border border-gray-200/50">
+                    {currentUser.role === 'Student' ? (
+                      <>
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z" /><path d="M6 12v5c0 1 2.7 2.5 6 2.5s6-1.5 6-2.5v-5" /><path d="M22 10v4" /></svg>
+                        סטודנט/ית
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4h18" /><path d="M4 4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V4" /><path d="M12 14v4M9 21l3-3 3 3" /></svg>
+                        מרצה
+                      </>
+                    )}
                   </span>
-                  <span className="bg-[#E1F5EE] text-[#006937] px-3 py-1 rounded-full border border-[#006937]/20">
-                    🏆 דרגה: {currentUser.tier}
+                  <span className="inline-flex items-center gap-1 bg-[#E1F5EE] text-[#006937] px-3 py-1 rounded-full border border-[#006937]/20">
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z" /><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3" /></svg>
+                    דרגה: {currentUser.tier}
                   </span>
                 </div>
 
                 {/* Pioneer Rule Banner: Evaluates the actual boolean value from main.py */}
                 {!currentUser.pioneer_rule_unlocked && (
                   <div className="bg-amber-50 text-amber-800 p-3.5 rounded-2xl border border-amber-200 text-xs font-semibold text-right space-y-1 animate-slideUp">
-                    <p className="text-amber-900 flex items-center gap-1.5">🛡️ תקופת הרצה למשתמש חדש</p>
+                    <p className="text-amber-900 flex items-center gap-1.5"> תקופת הרצה למשתמש חדש</p>
                     <p className="text-gray-500 font-normal leading-relaxed">
                       מכיוון שאתה רשום כמשתמש חדש במערכת, הדיווחים הראשונים שלך יעברו בדיקת קונצנזוס על ידי חברי הקהילה בקמפוס לפני שישנו את צבע המפה.
                     </p>
@@ -801,9 +924,9 @@ function App() {
                 {/* Dynamic Trust Score Progress Indicator */}
                 <div className="bg-[#004128] text-white p-4 rounded-2xl shadow-inner">
                   <span className="text-[10px] text-green-300 font-semibold uppercase tracking-wider block">
-                    ציון אמינות קהילתי (Trust Score)
+                    ציון אמינות קהילתי שלך
                   </span>
-                  <div className="text-4xl font-semibold text-[#006937] my-1">
+                  <div className="text-4xl font-semibold text-[#f5faf0] my-1">
                     {Math.round(currentUser.trust_score * 100)}%
                   </div>
                   <p className="text-[11px] text-gray-400 font-medium">
@@ -1075,6 +1198,21 @@ function App() {
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
               דיווח
             </button>
+          )}
+      {/* "Feature in development" notice for room booking */}
+          {showBookingSoon && (
+            <div
+              className="fixed inset-0 z-[70] flex items-center justify-center p-6"
+              onClick={() => setShowBookingSoon(false)}
+            >
+              <div
+                dir="rtl"
+                className="bg-gray-700/90 backdrop-blur-sm text-white rounded-2xl px-5 py-4 text-center shadow-xl max-w-[260px]"                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="text-sm font-bold">התכונה בפיתוח</div>
+                <div className="text-xs text-gray-300 mt-1">בקרוב סטודנטים יוכלו לתאם כיתה ללמידה</div>
+              </div>
+            </div>
           )}
 
           {/* 3. PERSISTENT SYSTEM BOTTOM NAVIGATION MENU BAR (Screen Flow Anchor) */}

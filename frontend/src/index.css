@@ -117,3 +117,16 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 } */
+
+ .no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+}
