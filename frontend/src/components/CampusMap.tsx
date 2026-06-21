@@ -168,8 +168,8 @@ function BuildingPopup({ building }: { building: ReturnType<typeof aggregateBuil
 
   const visibleRooms = [...building.rooms]
     .filter((r) => {
-      if (q) return r.room_id.includes(q)
-      return showBusy ? true : r.occupancy_status === 'FREE'
+      if (q) return String(r.room_id).startsWith(q)
+        return showBusy ? true : r.occupancy_status === 'FREE'
     })
     .sort((a, b) => a.room_id.localeCompare(b.room_id, undefined, { numeric: true }))
 
@@ -211,7 +211,7 @@ function BuildingPopup({ building }: { building: ReturnType<typeof aggregateBuil
           </label>
 
           {/* Compact fixed-height list: ~3 rooms visible, the rest scrolls */}
-          <div style={{ marginTop: 7, fontSize: 12, height: 66, overflowY: 'auto' }}>
+          <div className="no-scrollbar" style={{ marginTop: 7, fontSize: 12, height: 66, overflowY: 'auto' }}>
             {visibleRooms.length === 0 ? (
               <div style={{ color: '#999', padding: '5px 0' }}>
                 {q ? 'לא נמצא חדר כזה' : 'אין חדרים פנויים כרגע'}
