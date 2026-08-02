@@ -17,6 +17,7 @@ class DatabaseService:
             raise ValueError("❌ Error: DATABASE_URL not found in .env file")
         
         self.engine = create_engine(db_url)
+        self.last_cleared_id = 0  # Cutoff to clear the terminal without deleting data
 
     def get_valid_locations(self):
         """Retrieves a list of all available rooms from the database."""
@@ -172,6 +173,16 @@ class DatabaseService:
                 TRUNCATE TABLE occupancy_status CASCADE;
                 ALTER SEQUENCE occupancy_status_id_seq RESTART WITH 1;
             """))
+
+    def clear_terminal_view(self):
+        """
+        Remembers the highest report ID. The terminal will only show logs AFTER this ID,
+        leaving the actual database records 100% intact.
+        """
+        with self.engine.connect() as conn:
+            res = conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM report_history")).scalar()
+            self.last_cleared_id = int(res)
+            print(f"🧹 Terminal view cleared. New logs must have ID > {self.last_cleared_id}")
         
     def get_current_rooms(self):
         """Gets current room statuses for the frontend with a fallback to the schedule."""
@@ -208,39 +219,42 @@ class DatabaseService:
             ]
 
     def get_recent_logs(self):
-        """Gets the latest logs for the terminal."""
-        with self.engine.connect() as conn:
+        min_id = getattr(self, "last_cleared_id", 0)
 
-            res = conn.execute(text("""
-                SELECT rh.id, 
-                       TO_CHAR(rh.created_at, 'HH24:MI:SS') as time_str, 
-                       u.app_user_id, 
-                       b.code as building,
-                       r.room_number, 
-                       rh.reported_status,
-                       rh.trust_at_report,
-                       rh.engine_message
+        with self.engine.connect() as conn:
+            query = text("""
+                SELECT 
+                    rh.id,
+                    u.app_user_id as agent_id,
+                    rh.trust_at_report as trust,
+                    b.code as building,
+                    r.room_number as room,
+                    rh.reported_status as status,
+                    rh.engine_message as message,
+                    TO_CHAR(rh.created_at + INTERVAL '3 hours', 'HH24:MI:SS') as time_str
                 FROM report_history rh
                 JOIN users u ON rh.user_id = u.id
                 JOIN rooms r ON rh.room_id = r.id
                 JOIN buildings b ON r.building_id = b.id
-                ORDER BY rh.created_at DESC
-                LIMIT 50
-            """))
+                WHERE rh.id > :min_id
+                ORDER BY rh.id DESC
+                LIMIT 30
+            """)
+            rows = conn.execute(query, {"min_id": min_id}).fetchall()
             
             logs = []
-            for row in res:
-                status = row[5]
+            for row in rows:
+                status = str(row[5])
                 log_type = "success" if status == "FREE" else ("warning" if status == "BUSY" else "info")
                 logs.append({
                     "id": str(row[0]),
-                    "timestamp": row[1],
-                    "agent_id": row[2],
-                    "building": str(row[3]),
-                    "room": str(row[4]),
-                    "status": status,
-                    "trust": float(row[6]) if row[6] is not None else 0.50,
-                    "message": str(row[7]) if row[7] else "Pending...", 
+                    "agent_id": str(row[1]),       
+                    "trust": float(row[2]) if row[2] is not None else 0.50, 
+                    "building": str(row[3]),       
+                    "room": str(row[4]),           
+                    "status": status,             
+                    "message": str(row[6]) if row[6] else "Pending...",     
+                    "timestamp": str(row[7]),      
                     "type": log_type
                 })
             return logs[::-1]
@@ -260,7 +274,7 @@ class DatabaseService:
             )
 
             # 2. If the report was correct (delta > 0)
-            if trust_delta > 0:
+            if trust_delta >= 0:
                 # Increase the success counter
                 conn.execute(
                     text("UPDATE users SET successful_reports = successful_reports + 1 WHERE id = :uid"),
@@ -369,7 +383,7 @@ class DatabaseService:
                     b.code as building_number,
                     r.room_number,
                     rh.reported_status,
-                    TO_CHAR(rh.created_at, 'DD/MM/YYYY HH24:MI') as formatted_date
+                    TO_CHAR(rh.created_at + INTERVAL '3 hours', 'DD/MM/YYYY HH24:MI') as formatted_date
                 FROM report_history rh
                 JOIN users u ON rh.user_id = u.id
                 JOIN rooms r ON rh.room_id = r.id
@@ -388,3 +402,51 @@ class DatabaseService:
                 }
                 for row in res
             ]
+
+    # ==========================================
+    # ADMIN USER MANAGEMENT METHODS
+    # ==========================================
+
+    def get_all_users_list(self):
+        """
+        Returns a formatted list of all users for the Admin panel table.
+        Dynamically counts real reports from report_history so numbers never get out of sync!
+        """
+        with self.engine.connect() as conn:
+            res = conn.execute(text("""
+                SELECT 
+                    u.app_user_id, 
+                    u.role, 
+                    u.trust_score, 
+                    u.tier,
+                    -- The actual number of user reports in the database
+                    (SELECT COUNT(*) FROM report_history rh WHERE rh.user_id = u.id) as real_total_reports,
+                    u.successful_reports,
+                    TO_CHAR(u.created_at + INTERVAL '3 hours', 'DD/MM/YYYY HH24:MI') as formatted_date
+                FROM users u
+                ORDER BY u.created_at DESC
+            """))
+            
+            return [{
+                "app_user_id": row[0],
+                "role": row[1],
+                "trust_score": float(row[2]),
+                "tier": row[3],
+                "successful_reports": row[5],
+                "total_reports": int(row[4]), 
+                "created_at": str(row[6]) if row[6] else "N/A"
+            } for row in res]
+
+    def update_user_admin(self, app_user_id, trust_score, tier):
+        """Admin updates a specific user's trust score and tier."""
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE users
+                SET trust_score = :trust, tier = :tier
+                WHERE app_user_id = :uid
+            """), {"trust": trust_score, "tier": tier, "uid": app_user_id})
+
+    def delete_user(self, app_user_id):
+        """Admin deletes a user from the database completely."""
+        with self.engine.begin() as conn:
+            conn.execute(text("DELETE FROM users WHERE app_user_id = :uid"), {"uid": app_user_id})
