@@ -11,6 +11,9 @@ from sqlalchemy import text
 import asyncio
 import simpy
 import random
+import pickle
+import pandas as pd
+from typing import Optional
 
 from backend.db_service import DatabaseService
 from simulation.src.logic_engine import TrustLogicEngine
@@ -347,4 +350,161 @@ async def clear_simulation_logs():
         return {"status": "success", "message": "History cleared!"}
     except Exception as e:
         print(f"❌ Error clearing logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+# --- ML FORECASTING ENDPOINT (PRODUCT UX: TOP ROOMS & SPECIFIC CHECK) ---
+
+_ml_model_artifact = None
+
+def get_ml_model():
+    """Lazy loader for the Random Forest model artifact."""
+    global _ml_model_artifact
+    if _ml_model_artifact is None:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.abspath(os.path.join(base_dir, "..", "ml_forecasting", "room_predictor.pkl"))
+        if not os.path.exists(model_path):
+            raise HTTPException(
+                status_code=500, 
+                detail="ML model artifact not found. Run train_model.py inside ml_forecasting/ first."
+            )
+        with open(model_path, "rb") as f:
+            _ml_model_artifact = pickle.load(f)
+    return _ml_model_artifact
+
+
+@app.get("/api/ml/forecast")
+async def forecast_room_availability(
+    day_of_week: int,
+    hour: int,
+    building_number: str = "הכל",
+    room_number: Optional[str] = None
+):
+    """
+    Returns Top-5 most likely available rooms for the selected day and hour,
+    plus a specific room prediction if room_number is provided.
+    day_of_week parameter: 0 = Sun, 1 = Mon ... 4 = Thu
+    In SQL database schedule_events: 1 = Sun, 2 = Mon ... 5 = Thu
+    """
+    try:
+        artifact = get_ml_model()
+        clf = artifact["model"]
+        le_bnum = artifact["le_bnum"]
+        le_bname = artifact["le_bname"]
+        features = artifact["features"]
+
+        time_str = f"{hour:02d}:00:00"
+        db_day = day_of_week + 1  # Map frontend day (0=Sun..4=Thu) to DB day (1=Sun..5=Thu)
+
+        with db.engine.connect() as conn:
+            # Using CAST(:time_str AS TIME) and :sem to avoid SQLAlchemy parsing conflicts
+            query = text("""
+                SELECT 
+                    b.code as building_number,
+                    COALESCE(b.name, 'מ.ישראל') as building_name,
+                    r.room_number,
+                    CASE WHEN EXISTS (
+                        SELECT 1 FROM schedule_events se 
+                        WHERE se.room_id = r.id 
+                        AND se.semester LIKE :sem
+                        AND se.day_of_week = :day 
+                        AND CAST(:time_str AS TIME) BETWEEN se.start_time AND se.end_time
+                    ) THEN 1 ELSE 0 END as has_schedule_class
+                FROM rooms r
+                JOIN buildings b ON r.building_id = b.id
+                WHERE (:bcode = 'הכל' OR b.code = :bcode)
+            """)
+            rows = conn.execute(query, {
+                "day": db_day,
+                "time_str": time_str,
+                "sem": "%א%",
+                "bcode": str(building_number)
+            }).fetchall()
+
+        if not rows:
+            return {
+                "status": "success",
+                "day_of_week": day_of_week,
+                "hour": hour,
+                "building_filter": building_number,
+                "top_rooms": [],
+                "specific_room": None,
+                "room_exists": False,
+                "model_used": "RandomForestClassifier"
+            }
+
+        data_list = []
+        for row in rows:
+            b_num = str(row[0]).strip()
+            b_name = str(row[1]).strip()
+            r_num = str(row[2]).strip()
+            has_class = int(row[3])
+
+            try:
+                bnum_code = le_bnum.transform([b_num])[0]
+            except ValueError:
+                bnum_code = 0
+
+            try:
+                bname_code = le_bname.transform([b_name])[0]
+            except ValueError:
+                bname_code = 0
+
+            data_list.append({
+                "building_number": b_num,
+                "building_name": b_name,
+                "room_number": r_num,
+                "has_schedule_class": has_class,
+                "day_of_week": day_of_week,
+                "hour": hour,
+                "building_num_code": bnum_code,
+                "building_name_code": bname_code
+            })
+
+        df_predict = pd.DataFrame(data_list)
+        X = df_predict[features]
+        probs = clf.predict_proba(X)[:, 1]  # Probability of FREE
+        df_predict["probability_free"] = probs
+
+        df_sorted = df_predict.sort_values(by="probability_free", ascending=False)
+
+        def format_room(item):
+            prob = round(float(item["probability_free"]), 2)
+            return {
+                "building_number": str(item["building_number"]),
+                "building_name": str(item["building_name"]),
+                "room_number": str(item["room_number"]),
+                "has_schedule_class": bool(item["has_schedule_class"]),
+                "prediction": "FREE" if prob >= 0.5 else "BUSY",
+                "probability_free": prob,
+                "probability_free_percent": f"{int(prob * 100)}%"
+            }
+
+        all_formatted = [format_room(row) for _, row in df_sorted.iterrows()]
+        top_5 = all_formatted[:5]
+
+        specific_result = None
+        room_exists = True
+        if room_number and str(room_number).strip():
+            clean_rnum = str(room_number).strip()
+            found = next((r for r in all_formatted if str(r["room_number"]) == clean_rnum), None)
+            if found:
+                specific_result = found
+            else:
+                room_exists = False
+
+        return {
+            "status": "success",
+            "day_of_week": day_of_week,
+            "hour": hour,
+            "building_filter": building_number,
+            "top_rooms": top_5,
+            "specific_room": specific_result,
+            "room_exists": room_exists,
+            "model_used": "RandomForestClassifier"
+        }
+
+    except Exception as e:
+        print(f"❌ Error in ML Forecast Endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
