@@ -397,7 +397,12 @@ function App() {
                 <p className="text-sm text-gray-500 font-medium"> נשמח לראותך שוב בקמפוס.</p>
                 <div className="flex gap-2 pt-1">
                   <button
-                    onClick={() => { setCurrentUser(null); setShowLogout(false); }}
+                    onClick={() => { 
+                      setCurrentUser(null); 
+                      setShowLogout(false); 
+                      setIsAdminLogin(false); //brings back to general login page
+                      setAdminPassword(''); //erases admin password
+                    }}
                     className="flex-1 bg-[#E24B4A] text-white py-2.5 rounded-xl font-bold text-sm"
                   >
                     יציאה
