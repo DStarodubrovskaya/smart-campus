@@ -137,6 +137,10 @@ class UserLoginPayload(BaseModel):
     app_user_id: str
     role: Literal["Student", "Lecturer"]
 
+class AdminUserUpdate(BaseModel):
+    trust_score: float
+    tier: str
+
 class RealUserReport(BaseModel):
     app_user_id: str
     room_id: int
@@ -340,16 +344,18 @@ async def get_user_history(app_user_id: str):
     
 @app.post("/api/simulation/clear-logs")
 async def clear_simulation_logs():
-    """Clears all history and room statuses upon admin request."""
-    # Prevent accidental clicks while the engine is running
-    if IS_ENGINE_RUNNING:
-        raise HTTPException(status_code=400, detail="Stop the simulation first!")
-        
+    """
+    Clears the Admin terminal feed by setting an ID cutoff.
+    Zero rows are deleted from Supabase — audit history is 100% safe.
+    """
     try:
-        db.clear_all_history()
-        return {"status": "success", "message": "History cleared!"}
+        db.clear_terminal_view()
+        return {
+            "status": "success", 
+            "message": "Terminal live feed cleared (database records preserved)."
+        }
     except Exception as e:
-        print(f"❌ Error clearing logs: {e}")
+        print(f"❌ Error clearing terminal view: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -507,4 +513,51 @@ async def forecast_room_availability(
 
     except Exception as e:
         print(f"❌ Error in ML Forecast Endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+    # ==========================================
+# ADMIN & PERSISTENT SESSION ENDPOINTS
+# ==========================================
+
+@app.get("/api/simulation/status")
+async def get_simulation_status():
+    """
+    Allows the frontend to check if the engine is currently running in the background.
+    Vital for keeping the simulation alive when students log in/out.
+    """
+    global IS_ENGINE_RUNNING
+    return {"status": "success", "is_running": IS_ENGINE_RUNNING}
+
+
+@app.get("/api/admin/users")
+async def admin_get_users():
+    """Gets the full list of users for the Admin Manager Table."""
+    try:
+        users = db.get_all_users_list()
+        return {"status": "success", "users": users}
+    except Exception as e:
+        print(f"❌ Error fetching admin users: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/admin/users/{app_user_id}")
+async def admin_update_user(app_user_id: str, payload: AdminUserUpdate):
+    """Allows admin to manually override Trust Score and Tier."""
+    try:
+        db.update_user_admin(app_user_id, payload.trust_score, payload.tier)
+        return {"status": "success", "message": f"User {app_user_id} updated successfully!"}
+    except Exception as e:
+        print(f"❌ Error updating user {app_user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/admin/users/{app_user_id}")
+async def admin_delete_user(app_user_id: str):
+    """Allows admin to permanently delete a user (e.g. banning a troll)."""
+    try:
+        db.delete_user(app_user_id)
+        return {"status": "success", "message": f"User {app_user_id} was deleted."}
+    except Exception as e:
+        print(f"❌ Error deleting user {app_user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -12,6 +12,12 @@ import logoDark from "./assets/logo-dark.svg";
 import { useUserHistory } from "./hooks/useUserHistory";
 import { useClearLogs } from "./hooks/useClearLogs";
 import { usePredictAvailability } from "./hooks/usePredictAvailability";
+import {
+  useAdminUsers,
+  useUpdateUserAdmin,
+  useDeleteUserAdmin,
+  type AdminUser,
+} from "./hooks/useAdminUsers";
 
 // Design Token Color Helper based on your official specification sheet
 const getStatusStyles = (status: string) => {
@@ -67,7 +73,73 @@ function App() {
   const [isAdminLogin, setIsAdminLogin] = useState<boolean>(false);
   const [adminPassword, setAdminPassword] = useState<string>("");
 
-  const [currentUser, setCurrentUser] = useState<any | null>(null);
+  // --- PERSISTENT SESSION (localStorage) ---
+  const [currentUser, setCurrentUser] = useState<any | null>(() => {
+    const saved = localStorage.getItem("campus_session");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        localStorage.removeItem("campus_session");
+      }
+    }
+    return null;
+  });
+
+  // Automatically save session changes to browser localStorage
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem("campus_session", JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem("campus_session");
+    }
+  }, [currentUser]);
+
+  // --- ADMIN USER MANAGER MODAL STATE ---
+  const [showUserManager, setShowUserManager] = useState(false);
+  const [adminUserSearch, setAdminUserSearch] = useState<string>("");
+  const { data: adminUsersList, isLoading: isLoadingUsers } = useAdminUsers(
+    !!currentUser?.isAdmin && showUserManager,
+  );
+  const { mutate: updateUserAdmin, isPending: isUpdatingUser } =
+    useUpdateUserAdmin();
+  const { mutate: deleteUserAdmin } = useDeleteUserAdmin();
+
+  // Filter users by ID, Role, or Tier
+  const filteredAdminUsers = adminUsersList
+    ? adminUsersList.filter(
+        (user: AdminUser) =>
+          user.app_user_id
+            .toLowerCase()
+            .includes(adminUserSearch.trim().toLowerCase()) ||
+          user.role
+            .toLowerCase()
+            .includes(adminUserSearch.trim().toLowerCase()) ||
+          user.tier
+            .toLowerCase()
+            .includes(adminUserSearch.trim().toLowerCase()),
+      )
+    : [];
+  // --- EDIT USER LOCAL STATE ---
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+  const [editTrust, setEditTrust] = useState<number>(0.5);
+  const [editTier, setEditTier] = useState<string>("Resident");
+
+  // --- BACKGROUND SIMULATION PERSISTENCE CHECK ---
+  // When any user logs in or refreshes, we check if the Python engine is running
+  useEffect(() => {
+    axios
+      .get("http://localhost:8000/api/simulation/status")
+      .then((res) => {
+        if (res.data && res.data.is_running) {
+          setIsSimulationActive(true);
+        }
+      })
+      .catch(() => {
+        // Silent catch if backend is offline
+      });
+  }, []);
+
   const [showLogout, setShowLogout] = useState(false);
 
   const [activeTab, setActiveTab] = useState<
@@ -507,26 +579,57 @@ function App() {
         <>
           {/* 1. WIREFRAME TOP HEADER (Screen 2 Requirement) */}
           <header className="bg-[#004128] text-white px-5 py-3 shadow-md sticky top-0 z-50 flex justify-between items-center">
+            {/* ==========================================
+              IMPERSONATION BANNER (Admin Viewing as User)
+              ========================================== */}
+            {currentUser?.isImpersonated && (
+              <div className="bg-amber-500 text-black px-4 py-2 text-center text-xs font-bold flex justify-between items-center shadow-md sticky top-0 z-[60]">
+                <div className="flex items-center gap-1.5">
+                  <span>👁️</span>
+                  <span>
+                    מצב צפייה כמשתמש: <strong>{currentUser.app_user_id}</strong>{" "}
+                    ({currentUser.role}) · דרגה: {currentUser.tier}
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    // Restore original Admin session
+                    setCurrentUser({
+                      app_user_id: currentUser.originalAdminId || "admin",
+                      role: "Lecturer",
+                      trust_score: 0.95,
+                      tier: "VIP",
+                      isAdmin: true,
+                    });
+                  }}
+                  className="bg-black text-white px-3 py-1 rounded-lg hover:bg-gray-800 transition-all text-[11px]"
+                >
+                  חזור לחשבון מנהל ✕
+                </button>
+              </div>
+            )}
             <img src={logoLight} alt="Smart Campus" className="h-13" />
-            <button
-              onClick={() => setShowLogout(true)}
-              className="bg-[#78cde6] text-[#063b4d] px-3 py-1.5 rounded-full font-bold text-xs flex items-center gap-1.5 hover:bg-[#9bd9ec] transition-colors"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            {!currentUser?.isImpersonated && (
+              <button
+                onClick={() => setShowLogout(true)}
+                className="bg-[#78cde6] text-[#063b4d] px-3 py-1.5 rounded-full font-bold text-xs flex items-center gap-1.5 hover:bg-[#9bd9ec] transition-colors"
               >
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <path d="M16 17l5-5-5-5" />
-                <path d="M21 12H9" />
-              </svg>
-              יציאה
-            </button>
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <path d="M16 17l5-5-5-5" />
+                  <path d="M21 12H9" />
+                </svg>
+                יציאה
+              </button>
+            )}
           </header>
           {showLogout && (
             <div
@@ -910,6 +1013,27 @@ function App() {
                       {isClearingLogs
                         ? " מנקה נתונים..."
                         : " נקה היסטוריית דיווחים (Clear Logs)"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowUserManager(true)}
+                      className="w-full mt-2 bg-[#78cde6]/20 hover:bg-[#78cde6]/30 text-[#063b4d] border border-[#78cde6]/40 py-3 px-4 rounded-xl text-sm font-bold transition-all flex justify-center items-center gap-2"
+                    >
+                      <svg
+                        className="w-5 h-5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                      ניהול משתמשים ודירוג אמינות (User Manager)
                     </button>
                   </section>
                 )}
@@ -2370,6 +2494,341 @@ function App() {
                     </p>
                   </div>
                 )}
+              </div>
+            )}
+            {/* ==========================================
+              ADMIN USER MANAGER MODAL (RBAC, Manual Trust, History & Impersonate)
+              ========================================== */}
+            {showUserManager && currentUser?.isAdmin && (
+              <div
+                className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4"
+                onClick={() => {
+                  setShowUserManager(false);
+                  setEditingUser(null);
+                  setAdminUserSearch(""); // Reset search on close
+                }}
+              >
+                <div
+                  dir="rtl"
+                  className="bg-white rounded-3xl p-5 w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl animate-fadeIn text-right"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* MODAL HEADER */}
+                  <div className="flex justify-between items-center pb-3 border-b border-gray-100 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-[#006937]"></span>
+                      <h3 className="text-lg font-bold text-[#004128]">
+                        ניהול משתמשים ודירוגי אמינות (Admin)
+                      </h3>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowUserManager(false);
+                        setEditingUser(null);
+                        setAdminUserSearch(""); // Reset search on close
+                      }}
+                      className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* SEARCH & FILTER BAR */}
+                  <div className="relative mb-3">
+                    <input
+                      type="text"
+                      placeholder="חיפוש לפי מזהה (לדוגמה: U101), תפקיד או דרגה..."
+                      value={adminUserSearch}
+                      onChange={(e) => setAdminUserSearch(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 rounded-xl border border-gray-200 bg-gray-50/50 text-xs font-semibold text-right focus:outline-none focus:ring-2 focus:ring-[#006937]"
+                    />
+                    {adminUserSearch && (
+                      <button
+                        onClick={() => setAdminUserSearch("")}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* EDIT USER CONTROLS PANEL */}
+                  {editingUser && (
+                    <div className="bg-[#E1F5EE]/50 border border-[#006937]/30 p-4 rounded-2xl mb-4 space-y-3 animate-fadeIn">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-bold text-[#004128]">
+                          עריכת משתמש:{" "}
+                          <code className="bg-white px-2 py-0.5 rounded">
+                            {editingUser.app_user_id}
+                          </code>
+                        </span>
+                        <button
+                          onClick={() => setEditingUser(null)}
+                          className="text-xs text-gray-400 hover:text-gray-600 font-semibold"
+                        >
+                          ביטול
+                        </button>
+                      </div>
+
+                      {/* MANUAL NUMBER INPUT + SLIDER SYNC */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            ציון אמינות (0.00 - 1.00):
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="0"
+                              max="1"
+                              step="0.01"
+                              value={editTrust}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                if (!isNaN(val)) {
+                                  setEditTrust(Math.max(0, Math.min(1, val)));
+                                }
+                              }}
+                              className="w-20 px-2 py-1 rounded-xl border border-gray-200 bg-white text-sm font-bold text-center"
+                            />
+                            <input
+                              type="range"
+                              min="0.0"
+                              max="1.0"
+                              step="0.01"
+                              value={editTrust}
+                              onChange={(e) =>
+                                setEditTrust(parseFloat(e.target.value))
+                              }
+                              className="flex-1 accent-[#006937]"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">
+                            דרגה (Tier):
+                          </label>
+                          <select
+                            value={editTier}
+                            onChange={(e) => setEditTier(e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-xl border border-gray-200 bg-white text-xs font-semibold text-right"
+                          >
+                            <option value="Newbie">Newbie (חדש)</option>
+                            <option value="Resident">Resident (תושב)</option>
+                            <option value="VIP">VIP (מצטיין)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* ACTION BUTTONS: SAVE OR IMPERSONATE */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          onClick={() => {
+                            updateUserAdmin(
+                              {
+                                app_user_id: editingUser.app_user_id,
+                                trust_score: editTrust,
+                                tier: editTier,
+                              },
+                              {
+                                onSuccess: () => setEditingUser(null),
+                              },
+                            );
+                          }}
+                          disabled={isUpdatingUser}
+                          className="bg-[#006937] hover:bg-[#158061] text-white py-2 rounded-xl text-xs font-bold transition-all"
+                        >
+                          {isUpdatingUser
+                            ? "שומר שינויים..."
+                            : "שמור שינויים ב-Supabase"}
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            // Impersonate / View App as this User
+                            const targetUser = {
+                              ...editingUser,
+                              isImpersonated: true,
+                              originalAdminId: currentUser.app_user_id,
+                              isAdmin: false,
+                            };
+                            setCurrentUser(targetUser);
+                            setShowUserManager(false);
+                            setEditingUser(null);
+                            setAdminUserSearch("");
+                          }}
+                          className="bg-amber-500 hover:bg-amber-600 text-black py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+                        >
+                          <span>👁️</span>
+                          <span>צפה באפליקציה כמשתמש זה</span>
+                        </button>
+                      </div>
+
+                      {/* OPTIONAL: VIEW REPORT HISTORY BUTTON */}
+                      <button
+                        onClick={async () => {
+                          try {
+                            const res = await axios.get(
+                              `http://localhost:8000/api/users/${editingUser.app_user_id}/history`,
+                            );
+                            if (res.data.reports.length === 0) {
+                              alert(
+                                `למשתמש ${editingUser.app_user_id} אין עדיין היסטוריית דיווחים.`,
+                              );
+                            } else {
+                              const formatted = res.data.reports
+                                .map(
+                                  (r: any) =>
+                                    `• כיתה ${r.room_number} (${r.building_number}): [${r.status}] ב-${r.timestamp}`,
+                                )
+                                .join("\n");
+                              alert(
+                                `היסטוריית דיווחים של ${editingUser.app_user_id}:\n\n${formatted}`,
+                              );
+                            }
+                          } catch (e) {
+                            alert("שגיאה בטעינת ההיסטוריה.");
+                          }
+                        }}
+                        className="w-full bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                      >
+                        📋 הצג היסטוריית דיווחים של המשתמש (
+                        {editingUser.total_reports} סה״כ)
+                      </button>
+                    </div>
+                  )}
+
+                  {/* USERS LIST TABLE (FILTERED BY SEARCH QUERY) */}
+                  <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+                    {isLoadingUsers ? (
+                      <div className="text-center py-8 text-sm text-gray-400 font-semibold animate-pulse">
+                        Loading users from Supabase...
+                      </div>
+                    ) : filteredAdminUsers.length === 0 ? (
+                      <div className="text-center py-8 text-sm text-gray-400 font-semibold">
+                        לא נמצאו משתמשים תואמים לחיפוש
+                      </div>
+                    ) : (
+                      filteredAdminUsers.map((user: AdminUser) => {
+                        const isShadowbanned = user.trust_score < 0.2;
+
+                        return (
+                          <div
+                            key={user.app_user_id}
+                            className={`border p-3 rounded-2xl flex items-center justify-between gap-2 transition-all ${
+                              isShadowbanned
+                                ? "bg-[#FCEBEB]/60 border-[#E24B4A]/40 hover:bg-[#FCEBEB]"
+                                : "bg-gray-50 border-gray-100 hover:bg-gray-100/50"
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-sm text-gray-800">
+                                  {user.app_user_id}
+                                </span>
+
+                                <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-gray-200 font-semibold text-gray-500">
+                                  {user.role === "Student" ? "סטודנט" : "מרצה"}
+                                </span>
+
+                                <span className="text-[10px] bg-[#E1F5EE] text-[#006937] px-2 py-0.5 rounded-full font-bold">
+                                  {user.tier}
+                                </span>
+
+                                {isShadowbanned && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] bg-[#E24B4A] text-white px-2 py-0.5 rounded-full font-bold shadow-sm animate-pulse">
+                                    Shadowban
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="text-[11px] text-gray-400 mt-1">
+                                נוצר: {user.created_at}
+                              </div>
+                            </div>
+
+                            {/* TRUST SCORE & ACTIONS */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span
+                                className={`text-sm font-black px-2.5 py-1 rounded-xl border ${
+                                  isShadowbanned
+                                    ? "bg-[#E24B4A] text-white border-[#E24B4A]"
+                                    : "bg-white text-[#006937] border-gray-200"
+                                }`}
+                              >
+                                {Math.round(user.trust_score * 100)}%
+                              </span>
+
+                              <button
+                                onClick={() => {
+                                  setEditingUser(user);
+                                  setEditTrust(user.trust_score);
+                                  setEditTier(user.tier);
+                                }}
+                                title="Edit User / Impersonate"
+                                className="w-8 h-8 rounded-xl bg-white hover:bg-[#E1F5EE] text-[#006937] border border-gray-200 flex items-center justify-center transition-all"
+                              >
+                                <svg
+                                  className="w-4 h-4"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M12 20h9" />
+                                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                </svg>
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  if (
+                                    confirm(
+                                      `Are you sure you want to delete user ${user.app_user_id}?`,
+                                    )
+                                  ) {
+                                    deleteUserAdmin(user.app_user_id);
+                                  }
+                                }}
+                                title="Delete User"
+                                className="w-8 h-8 rounded-xl bg-white hover:bg-[#FCEBEB] text-[#E24B4A] border border-gray-200 flex items-center justify-center transition-all"
+                              >
+                                <svg
+                                  className="w-4 h-4"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-gray-100 text-center">
+                    <button
+                      onClick={() => {
+                        setShowUserManager(false);
+                        setEditingUser(null);
+                        setAdminUserSearch("");
+                      }}
+                      className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-xl text-sm font-bold transition-all"
+                    >
+                      סגור חלונית
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </main>
