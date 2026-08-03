@@ -32,8 +32,8 @@ export interface ForecastResponse {
 export const usePredictAvailability = () => {
   return useMutation({
     mutationFn: async (payload: ForecastPayload): Promise<ForecastResponse> => {
-      const response = await axios.get("http://localhost:8000/api/ml/forecast", {
-        params: {
+    const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/ml/forecast`, {
+          params: {
           day_of_week: payload.day_of_week,
           hour: payload.hour,
           building_number: payload.building_number || "הכל",

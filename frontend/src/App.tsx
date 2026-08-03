@@ -129,7 +129,7 @@ function App() {
   // When any user logs in or refreshes, we check if the Python engine is running
   useEffect(() => {
     axios
-      .get("http://localhost:8000/api/simulation/status")
+      .get(`${import.meta.env.VITE_API_URL}/api/simulation/status`)
       .then((res) => {
         if (res.data && res.data.is_running) {
           setIsSimulationActive(true);
@@ -393,7 +393,7 @@ function App() {
       //const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/users/login`, {
 
       const response = await axios.post(
-        "http://localhost:8000/api/users/login",
+      `${import.meta.env.VITE_API_URL}/api/users/login`,
         {
           app_user_id: payloadUserId,
           role: payloadRole,
@@ -2670,8 +2670,8 @@ function App() {
                         onClick={async () => {
                           try {
                             const res = await axios.get(
-                              `http://localhost:8000/api/users/${editingUser.app_user_id}/history`,
-                            );
+                            `${import.meta.env.VITE_API_URL}/api/users/${editingUser.app_user_id}/history`,
+                              );
                             if (res.data.reports.length === 0) {
                               alert(
                                 `למשתמש ${editingUser.app_user_id} אין עדיין היסטוריית דיווחים.`,
