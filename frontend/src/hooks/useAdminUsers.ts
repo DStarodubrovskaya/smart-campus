@@ -15,7 +15,7 @@ export const useAdminUsers = (enabled: boolean) => {
   return useQuery({
     queryKey: ['adminUsers'],
     queryFn: async (): Promise<AdminUser[]> => {
-      const response = await axios.get('http://localhost:8000/api/admin/users')
+const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/admin/users`)
       return response.data.users
     },
     enabled: enabled, // Only fetch when admin panel is open
@@ -35,8 +35,8 @@ export const useUpdateUserAdmin = () => {
       tier: string
     }) => {
       const response = await axios.put(
-        `http://localhost:8000/api/admin/users/${app_user_id}`,
-        { trust_score, tier }
+      `${import.meta.env.VITE_API_URL}/api/admin/users/${app_user_id}`,
+              { trust_score, tier }
       )
       return response.data
     },
@@ -51,8 +51,8 @@ export const useDeleteUserAdmin = () => {
   return useMutation({
     mutationFn: async (app_user_id: string) => {
       const response = await axios.delete(
-        `http://localhost:8000/api/admin/users/${app_user_id}`
-      )
+      `${import.meta.env.VITE_API_URL}/api/admin/users/${app_user_id}`
+          )
       return response.data
     },
     onSuccess: () => {
