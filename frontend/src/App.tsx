@@ -59,7 +59,92 @@ const formatUntil = (t: any) => {
   const m = s.match(/^(\d{1,2}:\d{2})/);
   return "עד " + (m ? m[1] : s);
 };
+// Typeahead for numeric codes (hour/building/room): filters options by prefix as you type.
+function NumericAutocomplete({
+  value,
+  options,
+  renderLabel,
+  placeholder,
+  onSelect,
+  onClear,
+}: {
+  value: string;
+  options: string[];
+  renderLabel: (v: string) => string;
+  placeholder: string;
+  onSelect: (v: string) => void;
+  onClear?: () => void;
+}) {
+  const [query, setQuery] = useState(value || "");
+  const [open, setOpen] = useState(false);
 
+  useEffect(() => {
+    setQuery(value || "");
+  }, [value]);
+
+  const filtered = options
+    .filter((o) => o.startsWith(query.trim()))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        inputMode="numeric"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && filtered.length > 0) {
+            onSelect(filtered[0]);
+            setOpen(false);
+          }
+        }}
+        placeholder={placeholder}
+        className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-right focus:outline-none focus:ring-2 focus:ring-[#006937]"
+      />
+      {onClear && value && (
+        <button
+          type="button"
+          onClick={() => {
+            onClear();
+            setOpen(false);
+          }}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          aria-label="נקה בחירה"
+        >
+          ✕
+        </button>
+      )}
+      {open && query.trim() && (
+        <div className="absolute z-30 right-0 left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-44 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div className="px-4 py-2 text-xs text-gray-400 font-semibold">
+              לא נמצאה התאמה
+            </div>
+          ) : (
+            filtered.map((o) => (
+              <button
+                key={o}
+                type="button"
+                onClick={() => {
+                  onSelect(o);
+                  setOpen(false);
+                }}
+                className="w-full text-right px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-[#E1F5EE] hover:text-[#006937] transition-colors"
+              >
+                {renderLabel(o)}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 function App() {
   const terminalContainerRef = useRef<HTMLDivElement>(null);
 
@@ -225,6 +310,11 @@ function App() {
   const [amenityFilters, setAmenityFilters] = useState<Record<string, boolean>>(
     {},
   );
+  const [advBuildingQuery, setAdvBuildingQuery] = useState("");
+  const [showAdvBuildingList, setShowAdvBuildingList] = useState(false);
+  const filteredAdvBuildings = uniqueBuildings
+    .filter((b) => b.startsWith(advBuildingQuery.trim()))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   const floorOf = (id: any) => parseInt(String(id).trim()[0], 10) || 0;
   const roomBuildingFilter = (selectedBuilding || mapBuildingQuery).trim();
@@ -426,9 +516,9 @@ function App() {
       dir="rtl"
       className="min-h-screen bg-[#f5faf0] font-['Assistant',sans-serif] text-gray-800 flex flex-col pb-24 selection:bg-[#006937]/20"
     >
-      {/* ==========================================
+      {/*  
           GATEKEEPER VIEW: LOGIN SCREEN
-          ========================================== */}
+            */}
       {!currentUser ? (
         <div className="flex-1 flex flex-col justify-center items-center p-6 max-w-md mx-auto w-full animate-fadeIn mt-12">
           <div className="text-center space-y-2 mb-8">
@@ -573,15 +663,15 @@ function App() {
           </p>
         </div>
       ) : (
-        /* ==========================================
+        /*  
             EXISTING MAIN APPLICATION UNLOCKED
-            ========================================== */
+              */
         <>
           {/* 1. WIREFRAME TOP HEADER (Screen 2 Requirement) */}
           <header className="bg-[#004128] text-white px-5 py-3 shadow-md sticky top-0 z-50 flex justify-between items-center">
-            {/* ==========================================
+            {/*  
               IMPERSONATION BANNER (Admin Viewing as User)
-              ========================================== */}
+                */}
             {currentUser?.isImpersonated && (
               <div className="bg-amber-500 text-black px-4 py-2 text-center text-xs font-bold flex justify-between items-center shadow-md sticky top-0 z-[60]">
                 <div className="flex items-center gap-1.5">
@@ -696,33 +786,47 @@ function App() {
 
           {/* 2. DYNAMIC MAIN PORT PANEL */}
           <main className="flex-1 p-4 max-w-md mx-auto w-full h-[calc(100vh-140px)] overflow-y-auto space-y-4 pb-20">
-            {/* ==========================================
+            {/*  
                 TAB VIEW 1: MAP ENGINE & SIMULATION CENTER
-                ========================================== */}
+                  */}
             {activeTab === "map" && (
               <div className="space-y-4 animate-fadeIn">
-                {/* Wireframe Metric Counters (Screen 2 Requirement) */}
-                <div dir="rtl" className="flex gap-2">
-                  <div className="flex-1 min-w-0 bg-[#78cde6]/25 text-[#2f8fb3] rounded-full px-2 py-2 flex items-center justify-center gap-1">
-                    <span className="text-xs font-semibold truncate">סה״כ</span>
-                    <span className="text-sm font-bold">
-                      {statusCounts.total}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0 bg-[#006937]/15 text-[#006937] rounded-full px-2 py-2 flex items-center justify-center gap-1">
-                    <span className="text-xs font-semibold truncate">
-                      פנויות
-                    </span>
-                    <span className="text-sm font-bold">
+                {/* Status counters — single dashboard strip (Screen 2 Requirement) */}
+                <div
+                  dir="rtl"
+                  className="flex items-center bg-white rounded-xl"
+                >
+                  <div className="flex-1 flex flex-col items-center justify-center py-1.5 gap-0">
+                    <span className="text-xl font-extrabold text-[#006937] leading-none">
                       {statusCounts.free}
                     </span>
-                  </div>
-                  <div className="flex-1 min-w-0 bg-[#E24B4A]/15 text-[#E24B4A] rounded-full px-2 py-2 flex items-center justify-center gap-1">
-                    <span className="text-xs font-semibold truncate">
-                      תפוסות
+                    <span className="text-[10px] font-semibold text-[#006937] leading-none">
+                      כיתות פנויות
                     </span>
-                    <span className="text-sm font-bold">
+                  </div>
+                  <div
+                    className="self-center h-6 bg-[#004128]/15"
+                    style={{ width: "0.5px" }}
+                  />
+                  <div className="flex-1 flex flex-col items-center justify-center py-1 gap-0">
+                    <span className="text-base font-bold text-[#004128]/60 leading-none">
                       {statusCounts.busy}
+                    </span>
+                    <span className="text-[10px] font-semibold text-[#004128]/60 leading-none">
+                      כיתות תפוסות
+                    </span>
+                  </div>
+                  <div
+                    className="self-center h-6 bg-[#004128]/15"
+                    style={{ width: "0.5px" }}
+                  />
+                  
+                  <div className="flex-1 flex flex-col items-center justify-center py-1 gap-0">
+                    <span className="text-base font-bold text-[#004128]/60 leading-none">
+                      {statusCounts.total}
+                    </span>
+                    <span className="text-[10px] font-semibold text-[#004128]/60 leading-none">
+                      סה״כ כיתות 
                     </span>
                   </div>
                 </div>
@@ -1038,13 +1142,13 @@ function App() {
                   </section>
                 )}
 
-                {/* =========================================================================
+                {/*  ===============================
                   LIVE ROOMS OVERVIEW (Brings back 'rooms', 'roomsLoading', & 'roomsError')
-                  ========================================================================= */}
+                   =============================== */}
                 <section className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-base font-semibold text-gray-800">
-                      מצב כיתות בזמן אמת
+                      רשימת מצב כיתות בזמן אמת
                     </h3>
                   </div>
                   {roomBuildingFilter && (
@@ -1408,50 +1512,93 @@ function App() {
               </div>
             )}
 
-            {/* ==========================================
-                TAB VIEW 2: ADVANCED SYSTEM FILTERS (Screen 3)
-                ========================================== */}
+            {/* TAB VIEW 2: ADVANCED SYSTEM FILTERS (Screen 3)*/}
             {activeTab === "search" && (
               <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm space-y-4 animate-fadeIn">
                 <h2 className="text-xl font-semibold text-[#004128]">
-                  חיפוש וסינון מתקדם
+                  חיפוש וסינון לפי לו"ז מערכת שעות
                 </h2>
                 <div className="space-y-4 mt-2">
                   {/* ФИЛЬТР ПО ЗДАНИЯМ (ТЕПЕРЬ ДИНАМИЧЕСКИЙ) */}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-400 uppercase mb-1.5">
-                      בחר בניין קמפוס
-                    </label>
-
-                    {/* Используем flex-wrap чтобы кнопки переносились на новые строки */}
-                    <div className="flex flex-wrap gap-2 text-xs font-semibold justify-center">
-                      {/* Кнопка "Всё" всегда идет первой */}
-                      <button
-                        onClick={() => setSelectedBuildingFilter("הכל")}
-                        className={`py-2 px-4 rounded-xl transition-all ${
-                          selectedBuildingFilter === "הכל"
-                            ? "bg-[#006937] text-white shadow-md"
-                            : "bg-gray-50 text-gray-600 border border-gray-100"
-                        }`}
-                      >
-                        הכל
-                      </button>
-
-                      {/* Рисуем кнопки для всех зданий, которые есть в базе */}
-                      {uniqueBuildings.map((bld) => (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={advBuildingQuery}
+                        onChange={(e) => {
+                          setAdvBuildingQuery(e.target.value);
+                          setShowAdvBuildingList(true);
+                          setSelectedBuildingFilter("הכל");
+                        }}
+                        onFocus={() => setShowAdvBuildingList(true)}
+                        onKeyDown={(e) => {
+                          if (
+                            e.key === "Enter" &&
+                            filteredAdvBuildings.length > 0
+                          ) {
+                            const b = filteredAdvBuildings[0];
+                            setSelectedBuildingFilter(b);
+                            setAdvBuildingQuery(b);
+                            setShowAdvBuildingList(false);
+                          }
+                        }}
+                        placeholder="הקלד מספר בניין או השאר ריק לחיפוס בכל הבניינים"
+                        className="w-full pr-4 pl-9 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-right focus:outline-none focus:ring-2 focus:ring-[#006937]"
+                      />
+                      {advBuildingQuery && (
                         <button
-                          key={bld}
-                          onClick={() => setSelectedBuildingFilter(bld)}
-                          className={`py-2 px-4 rounded-xl transition-all ${
-                            selectedBuildingFilter === bld
-                              ? "bg-[#006937] text-white shadow-md"
-                              : "bg-gray-50 text-gray-600 border border-gray-100"
-                          }`}
+                          onClick={() => {
+                            setAdvBuildingQuery("");
+                            setSelectedBuildingFilter("הכל");
+                            setShowAdvBuildingList(false);
+                          }}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                          aria-label="נקה בחירה"
                         >
-                          {bld}
+                          ✕
                         </button>
-                      ))}
+                      )}
+                      {showAdvBuildingList && advBuildingQuery.trim() && (
+                        <div className="absolute z-30 right-0 left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-44 overflow-y-auto">
+                          {filteredAdvBuildings.length === 0 ? (
+                            <div className="px-4 py-2 text-xs text-gray-400 font-semibold">
+                              לא נמצא בניין כזה
+                            </div>
+                          ) : (
+                            filteredAdvBuildings.map((b) => (
+                              <button
+                                key={b}
+                                onClick={() => {
+                                  setSelectedBuildingFilter(b);
+                                  setAdvBuildingQuery(b);
+                                  setShowAdvBuildingList(false);
+                                }}
+                                className="w-full text-right px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-[#E1F5EE] hover:text-[#006937] transition-colors"
+                              >
+                                בניין {b}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
                     </div>
+                    {selectedBuildingFilter !== "הכל" && (
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1.5 bg-[#E1F5EE] text-[#006937] text-xs font-bold px-3 py-1 rounded-full">
+                          בניין {selectedBuildingFilter}
+                          <button
+                            onClick={() => {
+                              setSelectedBuildingFilter("הכל");
+                              setAdvBuildingQuery("");
+                            }}
+                            className="hover:text-[#004128] transition-colors"
+                            aria-label="הצג את כל הבניינים"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* СЛАЙДЕР ВРЕМЕНИ */}
@@ -1512,7 +1659,21 @@ function App() {
                             לא נמצאו חדרים שעונים על הדרישות
                           </div>
                         ) : (
-                          searchResponse.rooms.map((room: any) => (
+                          [...searchResponse.rooms]
+                            .sort((a: any, b: any) => {
+                              const byBuilding = String(a.building_number).localeCompare(
+                                String(b.building_number),
+                                undefined,
+                                { numeric: true },
+                              );
+                              if (byBuilding !== 0) return byBuilding;
+                              return String(a.room_number).localeCompare(
+                                String(b.room_number),
+                                undefined,
+                                { numeric: true },
+                              );
+                            })
+                            .map((room: any) => (
                             <div
                               key={room.room_id}
                               className="bg-gray-50 border border-gray-100 p-3 rounded-xl flex justify-between items-center shadow-sm"
@@ -1565,9 +1726,7 @@ function App() {
                     </div>
                   )}
 
-                  {/* ==========================================
-    ML DATA SCIENCE FORECASTING CARD (Smart Dropdowns & Feedback)
-    ========================================== */}
+                  {/* ML DATA SCIENCE FORECASTING CARD (Smart Dropdowns & Feedback) */}
                   <div className="mt-8 border-t border-gray-100 pt-6 animate-fadeIn">
                     <div className="bg-[#E1F5EE]/40 border border-[#006937]/20 p-5 rounded-3xl space-y-4">
                       {/* Product UX Header without jargon */}
@@ -1575,7 +1734,7 @@ function App() {
                         <div className="flex items-center gap-2">
                           <span className="w-2.5 h-2.5 rounded-full bg-[#006937] animate-pulse"></span>
                           <h3 className="text-base font-bold text-[#004128]">
-                            תחזית עומס עתידית (איפה יהיה פנוי?)
+                            תחזית עומס עתידית 
                           </h3>
                         </div>
                         <span className="text-[10px] font-bold bg-white text-[#006937] px-2.5 py-1 rounded-full border border-[#006937]/20">
@@ -1583,9 +1742,11 @@ function App() {
                         </span>
                       </div>
 
-                      <p className="text-xs text-gray-600 leading-relaxed">
-                        בחר בניין וכיתה כדי לבדוק זמינות עתידית, או השאר על "כל
-                        הכיתות" כדי לראות את 5 הכיתות הפנויות ביותר.
+                       <p className="text-xs text-gray-600 leading-relaxed">
+                        התחזית מבוססת על אלגוריתם שמנתח את כלל הדיווחים
+                        שנאספו במערכת, ומעריך מראש את העומס הצפוי בכיתות. 
+                        <br />
+                        בחר בניין וכיתה לבדיקה ממוקדת, או השאר ריק לרשימת הכיתות הפנויות ביותר.
                       </p>
 
                       {/* ROW 1: DAY OF WEEK & HOUR SELECTORS */}
@@ -1610,74 +1771,68 @@ function App() {
                           </select>
                         </div>
 
-                        <div>
+                         <div>
                           <label className="block text-xs font-semibold text-gray-500 mb-1">
                             שעה
                           </label>
-                          <select
-                            value={mlHour}
-                            onChange={(e) => {
-                              setMlHour(Number(e.target.value));
+                          <NumericAutocomplete
+                            value={String(mlHour)}
+                            options={[
+                              "8", "9", "10", "11", "12", "13",
+                              "14", "15", "16", "17", "18", "19",
+                            ]}
+                            renderLabel={(v) => `${v}:00`}
+                            placeholder="הקלד שעה"
+                            onSelect={(v) => {
+                              setMlHour(Number(v));
                               resetPrediction();
                             }}
-                            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-right focus:ring-2 focus:ring-[#006937]"
-                          >
-                            {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].map(
-                              (hr) => (
-                                <option key={hr} value={hr}>
-                                  {hr}:00
-                                </option>
-                              ),
-                            )}
-                          </select>
+                          />
                         </div>
                       </div>
 
                       {/* ROW 2: SMART CASCADING BUILDINGS & ROOMS SELECTORS */}
-                      <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-semibold text-gray-500 mb-1">
                             בניין קמפוס
                           </label>
-                          <select
-                            value={mlBuilding}
-                            onChange={(e) => {
-                              setMlBuilding(e.target.value);
-                              setMlSpecificRoom(""); // Automatically reset room selection when building changes
+                          <NumericAutocomplete
+                            value={mlBuilding === "הכל" ? "" : mlBuilding}
+                            options={uniqueBuildings}
+                            renderLabel={(v) => `בניין ${v}`}
+                            placeholder=" הקלד מספר בניין או השאר ריק"
+                            onSelect={(v) => {
+                              setMlBuilding(v);
+                              setMlSpecificRoom("");
                               resetPrediction();
                             }}
-                            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-right focus:ring-2 focus:ring-[#006937]"
-                          >
-                            <option value="הכל">כל הבניינים</option>
-                            {uniqueBuildings.map((b) => (
-                              <option key={b} value={b}>
-                                בניין {b}
-                              </option>
-                            ))}
-                          </select>
+                            onClear={() => {
+                              setMlBuilding("הכל");
+                              setMlSpecificRoom("");
+                              resetPrediction();
+                            }}
+                          />
                         </div>
 
                         <div>
                           <label className="block text-xs font-semibold text-gray-500 mb-1">
                             כיתה ספציפית
                           </label>
-                          <select
+                          <NumericAutocomplete
                             value={mlSpecificRoom}
-                            onChange={(e) => {
-                              setMlSpecificRoom(e.target.value);
+                            options={availableRoomsForBuilding}
+                            renderLabel={(v) => `כיתה ${v}`}
+                            placeholder="הקלד מספר כיתה או השאר ריק"
+                            onSelect={(v) => {
+                              setMlSpecificRoom(v);
                               resetPrediction();
                             }}
-                            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-right focus:ring-2 focus:ring-[#006937]"
-                          >
-                            <option value="">-- כל הכיתות (טופ 5) --</option>
-                            {availableRoomsForBuilding.map((roomNum) => (
-                              <option key={roomNum} value={roomNum}>
-                                כיתה {roomNum}
-                              </option>
-                            ))}
-                          </select>
+                            onClear={() => {
+                              setMlSpecificRoom("");
+                              resetPrediction();
+                            }}
+                          />
                         </div>
-                      </div>
 
                       {/* ACTION BUTTON */}
                       <button
@@ -1695,12 +1850,12 @@ function App() {
                       >
                         {isPredicting
                           ? "מחשב תחזית חכמה..."
-                          : "הצג תחזית (Random Forest)"}
+                          : "הצג תחזית"}
                       </button>
 
-                      {/* ==========================================
+                      {/*  
         FORECAST RESULTS & ERROR FEEDBACK CONTAINER
-        ========================================== */}
+          */}
                       {mlPrediction && (
                         <div className="space-y-4 pt-2 animate-fadeIn">
                           {/* FEEDBACK: IF SPECIFIC ROOM WAS NOT FOUND */}
@@ -1761,7 +1916,7 @@ function App() {
                           <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm space-y-2.5">
                             <div className="flex justify-between items-center pb-2 border-b border-gray-100">
                               <span className="text-xs font-bold text-gray-700">
-                                🏆 5 הכיתות הפנויות ביותר:
+                                 5 הכיתות הפנויות ביותר:
                               </span>
                               <span className="text-[10px] font-semibold text-gray-400">
                                 {mlPrediction.building_filter === "הכל"
@@ -1823,9 +1978,9 @@ function App() {
               </div>
             )}
 
-            {/* ==========================================
+            {/*  
                 TAB VIEW 3: GAMIFIED PROGRESSION PROFILE (Screen 5 - Fully Dynamic)
-                ========================================== */}
+                  */}
             {activeTab === "profile" && currentUser && (
               <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm text-center space-y-4 animate-fadeIn">
                 {/* User Avatar Initial */}
@@ -2087,9 +2242,9 @@ function App() {
                 </div>
               </div>
             )}
-            {/* ==========================================
+            {/*  
                 TAB VIEW 4: QUICK REPORT (Screen 6)
-                ========================================== */}
+                  */}
             {activeTab === "report" && currentUser && (
               <div dir="rtl" className="space-y-4 animate-fadeIn text-right">
                 <div className="flex items-center gap-2">
@@ -2496,9 +2651,9 @@ function App() {
                 )}
               </div>
             )}
-            {/* ==========================================
+            {/*  
               ADMIN USER MANAGER MODAL (RBAC, Manual Trust, History & Impersonate)
-              ========================================== */}
+                */}
             {showUserManager && currentUser?.isAdmin && (
               <div
                 className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4"

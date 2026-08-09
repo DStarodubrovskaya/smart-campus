@@ -516,9 +516,9 @@ async def forecast_room_availability(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-    # ==========================================
+    #  
 # ADMIN & PERSISTENT SESSION ENDPOINTS
-# ==========================================
+#  
 
 @app.get("/api/simulation/status")
 async def get_simulation_status():

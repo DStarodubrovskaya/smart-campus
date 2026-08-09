@@ -310,9 +310,9 @@ class DatabaseService:
         Searches for available rooms based on building filters and the minimum time until the next class.
         """
         with self.engine.connect() as conn:
-            # ================================================
+            #  ======
             # ⚠️ ATTENTION: DEMO MODE
-            # ================================================
+            #  ======
             # Currently, the SQL query uses a hardcoded time ('10:00:00')
             # and day of the week (1 = Monday, semester 'א').
             #
@@ -320,7 +320,7 @@ class DatabaseService:
             # 1. '10:00:00'::TIME -> :current_time
             # 2. day_of_week = 1 -> day_of_week = :current_day
             # And pass these values ​​to conn.execute() using datetime.now()
-            # =============================================
+            #  ===
             
             query = text("""
                 WITH CurrentStatus AS (
@@ -403,9 +403,9 @@ class DatabaseService:
                 for row in res
             ]
 
-    # ==========================================
+    #  
     # ADMIN USER MANAGEMENT METHODS
-    # ==========================================
+    #  
 
     def get_all_users_list(self):
         """
