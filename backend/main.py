@@ -270,11 +270,24 @@ async def submit_real_user_report(payload: RealUserReport):
                 
             db_id, trust_score, tier = user
 
-            room_status_row = conn.execute(
-                text("SELECT status FROM occupancy_status WHERE room_id = :rid"),
-                {"rid": payload.room_id}
-            ).fetchone()
-            current_status = room_status_row[0] if room_status_row else "FREE"
+            # ==========================================
+            # ИСПРАВЛЕНИЕ: Точно такой же SQL, как при загрузке карты.
+            # Сначала проверяем живой статус за последний час, если пусто - смотрим в расписание.
+            # ==========================================
+            status_query = text("""
+                SELECT 
+                    COALESCE(
+                        (SELECT status FROM occupancy_status WHERE room_id = :rid AND last_updated >= NOW() - INTERVAL '60 minutes'),
+                        (SELECT CASE WHEN EXISTS (
+                            SELECT 1 FROM schedule_events 
+                            WHERE room_id = :rid 
+                            AND semester LIKE '%א%' 
+                            AND day_of_week = 1 
+                            AND '10:00:00'::TIME BETWEEN start_time AND end_time
+                        ) THEN 'BUSY' ELSE 'FREE' END)
+                    )
+            """)
+            current_status = conn.execute(status_query, {"rid": payload.room_id}).scalar() or "FREE"
 
         # 2. Transfer everything to the Trust Logic Engine
         logic = TrustLogicEngine(db)

@@ -55,15 +55,14 @@ class DatabaseService:
             conn.commit()
 
     def update_room_status(self, room_id, status):
-        """Records the new room status (State Machine logic)."""
-        with self.engine.connect() as conn:
-            conn.execute(text("""
-                INSERT INTO occupancy_status (room_id, status) 
-                VALUES (:rid, :stat)
-                ON CONFLICT (room_id) DO UPDATE 
-                SET status = :stat, last_updated = CURRENT_TIMESTAMP
-            """), {"rid": room_id, "stat": status})
-            conn.commit()
+            """Records the new room status (State Machine logic)."""
+            with self.engine.begin() as conn:
+                conn.execute(text("""
+                    INSERT INTO occupancy_status (room_id, status, last_updated) 
+                    VALUES (:rid, :stat, CURRENT_TIMESTAMP)
+                    ON CONFLICT (room_id) DO UPDATE 
+                    SET status = :stat, last_updated = CURRENT_TIMESTAMP
+                """), {"rid": room_id, "stat": status})
 
     def check_schedule_status(self, b_code, room, current_sem, db_day, check_time_str):
         """Checks the official schedule to verify if a class is currently taking place."""
