@@ -11,7 +11,7 @@ from cleaners.clean_duplicate import clean_duplicates
 
 def main():
     print("Starting the course catalog processing pipeline")
-    print("==================================================")
+    print(" ========")
     
     start_time = time.time()
 
@@ -80,7 +80,7 @@ def main():
     df.to_excel(output_file, index=False)
     
     execution_time = round(time.time() - start_time, 2)
-    print("\n==================================================")
+    print("\n ========")
     print(f"✅ Done! Transformation completed in {execution_time} sec.")
     print(f"📁 Result saved to: {output_file}")
     print(f"📊 Final row count: {len(df)}")

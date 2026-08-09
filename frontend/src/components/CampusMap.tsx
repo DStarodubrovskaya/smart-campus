@@ -1,5 +1,5 @@
 import { MapContainer, TileLayer, Marker, Popup, useMap, ZoomControl } from 'react-leaflet'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import type { Room } from '../hooks/useRooms'
 import 'leaflet/dist/leaflet.css'
@@ -158,7 +158,61 @@ function FlyToMatch({ lat, lng }: { lat?: number; lng?: number }) {
   }, [lat, lng, map])
   return null
 }
+ // Custom fullscreen toggle, mirrored bottom-right in the same rounded style as ZoomControl.
+function FullscreenButton({ shellRef }: { shellRef: React.RefObject<HTMLDivElement | null> }) {
+  const map = useMap()
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
+  useEffect(() => {
+    const onChange = () => {
+      setIsFullscreen(document.fullscreenElement === shellRef.current)
+      setTimeout(() => map.invalidateSize(), 150)
+    }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [map, shellRef])
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      shellRef.current?.requestFullscreen()
+    } else {
+      document.exitFullscreen()
+    }
+  }
+
+  return (
+    <div className="leaflet-bottom leaflet-right">
+      <div className="leaflet-control map-fullscreen-btn">
+        <a
+          href="#"
+          role="button"
+          onClick={(e) => {
+            e.preventDefault()
+            toggleFullscreen()
+          }}
+          title={isFullscreen ? 'צא ממסך מלא' : 'הרחב למסך מלא'}
+          aria-label={isFullscreen ? 'צא ממסך מלא' : 'הרחב למסך מלא'}
+        >
+          {isFullscreen ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 3v3a2 2 0 0 1-2 2H3" />
+              <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
+              <path d="M3 16h3a2 2 0 0 1 2 2v3" />
+              <path d="M16 21v-3a2 2 0 0 1 2-2h3" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+              <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+              <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+              <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+            </svg>
+          )}
+        </a>
+      </div>
+    </div>
+  )
+}
 // Popup content: status indicator on the left, compact fixed-height room list (~3 rows),
 // free rooms only by default with a toggle for busy rooms and a search box by room number.
 function BuildingPopup({ building }: { building: ReturnType<typeof aggregateBuildingStatus>[number] }) {
@@ -241,9 +295,10 @@ export default function CampusMap({ rooms, selectedBuilding = '' }: CampusMapPro
   const buildings = aggregateBuildingStatus(rooms)
   const isSearching = selectedBuilding !== ''
   const matchTarget = isSearching ? buildings.find((b) => b.code === selectedBuilding) : undefined
+  const mapShellRef = useRef<HTMLDivElement>(null)
 
   return (
-    <div style={{ position: 'relative', height: '100%', width: '100%' }}>
+    <div ref={mapShellRef} style={{ position: 'relative', height: '100%', width: '100%' }}>
       {/* Round, search-styled zoom buttons in the bottom-left corner */}
       <style>{`
         .leaflet-control-zoom {
@@ -265,6 +320,23 @@ export default function CampusMap({ rooms, selectedBuilding = '' }: CampusMapPro
         }
         .leaflet-control-zoom a:hover { background: #f3f4f6 !important; }
         .leaflet-control-zoom-in { border-bottom: 1px solid #eee !important; }
+                .map-fullscreen-btn {
+          border: none !important;
+          border-radius: 12px !important;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+          overflow: hidden;
+          margin: 0 10px 10px 0 !important;
+        }
+        .map-fullscreen-btn a {
+          width: 34px !important;
+          height: 34px !important;
+          display: flex !important;
+          align-items: center;
+          justify-content: center;
+          color: #004128 !important;
+          background: #fff !important;
+        }
+        .map-fullscreen-btn a:hover { background: #f3f4f6 !important; }
       `}</style>
 
       
@@ -280,6 +352,7 @@ export default function CampusMap({ rooms, selectedBuilding = '' }: CampusMapPro
         <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
         <MapResizer />
         <ZoomControl position="bottomleft" />
+        <FullscreenButton shellRef={mapShellRef} />
         <FlyToMatch lat={matchTarget?.lat} lng={matchTarget?.lng} />
 
         {buildings.map((building) => {
