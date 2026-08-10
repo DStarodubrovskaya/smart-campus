@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import { useRooms } from "./hooks/useRooms";
 import { useStartSimulation } from "./hooks/useStartSimulation";
+import { usePauseSimulation } from "./hooks/usePauseSimulation";
+import { useResumeSimulation } from "./hooks/useResumeSimulation";
 import { useSimulationLogs } from "./hooks/useSimulationLogs";
 import { useStopSimulation } from "./hooks/useStopSimulation";
 import { useSearchRooms } from "./hooks/useSearchRooms";
@@ -235,6 +237,7 @@ function App() {
     useState<string>("הכל");
 
   const [isSimulationActive, setIsSimulationActive] = useState(false);
+  const [isSimulationPaused, setIsSimulationPaused] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<number>(1);
   const [showBookingSoon, setShowBookingSoon] = useState(false);
 
@@ -259,6 +262,8 @@ function App() {
     useStartSimulation();
   const { data: logs } = useSimulationLogs(isSimulationActive);
   const { mutate: stopSimulation } = useStopSimulation();
+  const { mutate: pauseSimulation } = usePauseSimulation();
+  const { mutate: resumeSimulation } = useResumeSimulation();
   const {
     mutate: searchRooms,
     data: searchResponse,
@@ -483,7 +488,7 @@ function App() {
       //const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/users/login`, {
 
       const response = await axios.post(
-      `${import.meta.env.VITE_API_URL}/api/users/login`,
+        `${import.meta.env.VITE_API_URL}/api/users/login`,
         {
           app_user_id: payloadUserId,
           role: payloadRole,
@@ -820,13 +825,13 @@ function App() {
                     className="self-center h-6 bg-[#004128]/15"
                     style={{ width: "0.5px" }}
                   />
-                  
+
                   <div className="flex-1 flex flex-col items-center justify-center py-1 gap-0">
                     <span className="text-base font-bold text-[#004128]/60 leading-none">
                       {statusCounts.total}
                     </span>
                     <span className="text-[10px] font-semibold text-[#004128]/60 leading-none">
-                      סה״כ כיתות 
+                      סה״כ כיתות
                     </span>
                   </div>
                 </div>
@@ -1093,22 +1098,57 @@ function App() {
                       ))}
                     </div>
 
-                    <button
-                      onClick={handleToggleSimulation}
-                      disabled={isStartingEngine}
-                      className="w-full text-white py-3 px-4 rounded-xl text-base font-semibold tracking-wide shadow-sm transition-all"
-                      style={{
-                        backgroundColor: isSimulationActive
-                          ? "#E24B4A"
-                          : "#006937",
-                      }}
-                    >
-                      {isStartingEngine
-                        ? " Starting Engine..."
-                        : isSimulationActive
-                          ? " עצור סימולציה"
-                          : " הפעל מנוע סימולציה"}
-                    </button>
+                    {/* Кнопки управления симуляцией */}
+                    {!isSimulationActive ? (
+                      <button
+                        onClick={() => {
+                          startSimulation({ scenario_id: selectedScenario });
+                          setIsSimulationActive(true);
+                          setIsSimulationPaused(false); // Сбрасываем паузу при новом старте
+                        }}
+                        disabled={isStartingEngine}
+                        className="w-full bg-[#006937] text-white py-3 px-4 rounded-xl text-base font-semibold shadow-sm transition-all hover:bg-[#158061]"
+                      >
+                        {isStartingEngine
+                          ? "מתחיל מנוע..."
+                          : "הפעל מנוע סימולציה (Start)"}
+                      </button>
+                    ) : !isSimulationPaused ? (
+                      /* ЕСЛИ РАБОТАЕТ: Только одна огромная кнопка Паузы */
+                      <button
+                        onClick={() => {
+                          pauseSimulation();
+                          setIsSimulationPaused(true);
+                        }}
+                        className="w-full bg-amber-500 text-white py-3 px-4 rounded-xl text-base font-semibold shadow-sm hover:bg-amber-600 transition-all"
+                      >
+                        השהה (Pause)
+                      </button>
+                    ) : (
+                      /* ЕСЛИ НА ПАУЗЕ: Большая "Продолжить" и маленькая "Стоп" */
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            resumeSimulation();
+                            setIsSimulationPaused(false);
+                          }}
+                          className="flex-[2] bg-[#006937] text-white py-3 rounded-xl text-base font-semibold shadow-sm hover:bg-[#158061] transition-all"
+                        >
+                          המשך (Resume)
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            stopSimulation(); // Вызывает эндпоинт, который полностью убивает бэкенд!
+                            setIsSimulationActive(false);
+                            setIsSimulationPaused(false);
+                          }}
+                          className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl text-sm font-semibold shadow-sm hover:bg-gray-200 transition-all"
+                        >
+                          סיים (End)
+                        </button>
+                      </div>
+                    )}
                     <button
                       onClick={() => clearLogs()}
                       disabled={isSimulationActive || isClearingLogs}
@@ -1661,7 +1701,9 @@ function App() {
                         ) : (
                           [...searchResponse.rooms]
                             .sort((a: any, b: any) => {
-                              const byBuilding = String(a.building_number).localeCompare(
+                              const byBuilding = String(
+                                a.building_number,
+                              ).localeCompare(
                                 String(b.building_number),
                                 undefined,
                                 { numeric: true },
@@ -1674,53 +1716,53 @@ function App() {
                               );
                             })
                             .map((room: any) => (
-                            <div
-                              key={room.room_id}
-                              className="bg-gray-50 border border-gray-100 p-3 rounded-xl flex justify-between items-center shadow-sm"
-                            >
-                              <div>
-                                <div className="text-xs text-gray-500 font-semibold uppercase">
-                                  בניין {room.building_number}
+                              <div
+                                key={room.room_id}
+                                className="bg-gray-50 border border-gray-100 p-3 rounded-xl flex justify-between items-center shadow-sm"
+                              >
+                                <div>
+                                  <div className="text-xs text-gray-500 font-semibold uppercase">
+                                    בניין {room.building_number}
+                                  </div>
+                                  <div className="text-base font-semibold text-gray-800">
+                                    כיתה {room.room_number}
+                                  </div>
                                 </div>
-                                <div className="text-base font-semibold text-gray-800">
-                                  כיתה {room.room_number}
-                                </div>
-                              </div>
-                              <div className="text-left">
-                                <div className="text-lg font-semibold text-[#006937]">
-                                  {room.free_for_minutes} דק'
-                                </div>
-                                <div className="text-[10px] text-gray-400 font-semibold">
-                                  {formatUntil(room.next_class_at)}
-                                </div>
-                                <button
-                                  onClick={() => setShowBookingSoon(true)}
-                                  className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#006937] bg-white px-2 py-1 rounded-lg border border-[#006937]/30 hover:bg-[#E1F5EE] transition-colors"
-                                >
-                                  <svg
-                                    className="w-3 h-3"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
+                                <div className="text-left">
+                                  <div className="text-lg font-semibold text-[#006937]">
+                                    {room.free_for_minutes} דק'
+                                  </div>
+                                  <div className="text-[10px] text-gray-400 font-semibold">
+                                    {formatUntil(room.next_class_at)}
+                                  </div>
+                                  <button
+                                    onClick={() => setShowBookingSoon(true)}
+                                    className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#006937] bg-white px-2 py-1 rounded-lg border border-[#006937]/30 hover:bg-[#E1F5EE] transition-colors"
                                   >
-                                    <rect
-                                      x="3"
-                                      y="4"
-                                      width="18"
-                                      height="18"
-                                      rx="2"
-                                    />
-                                    <path d="M16 2v4M8 2v4M3 10h18" />
-                                    <path d="M9 16l2 2 4-4" />
-                                  </svg>
-                                  הזמנה
-                                </button>
+                                    <svg
+                                      className="w-3 h-3"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <rect
+                                        x="3"
+                                        y="4"
+                                        width="18"
+                                        height="18"
+                                        rx="2"
+                                      />
+                                      <path d="M16 2v4M8 2v4M3 10h18" />
+                                      <path d="M9 16l2 2 4-4" />
+                                    </svg>
+                                    הזמנה
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ))
+                            ))
                         )}
                       </div>
                     </div>
@@ -1734,7 +1776,7 @@ function App() {
                         <div className="flex items-center gap-2">
                           <span className="w-2.5 h-2.5 rounded-full bg-[#006937] animate-pulse"></span>
                           <h3 className="text-base font-bold text-[#004128]">
-                            תחזית עומס עתידית 
+                            תחזית עומס עתידית
                           </h3>
                         </div>
                         <span className="text-[10px] font-bold bg-white text-[#006937] px-2.5 py-1 rounded-full border border-[#006937]/20">
@@ -1742,11 +1784,12 @@ function App() {
                         </span>
                       </div>
 
-                       <p className="text-xs text-gray-600 leading-relaxed">
-                        התחזית מבוססת על אלגוריתם שמנתח את כלל הדיווחים
-                        שנאספו במערכת, ומעריך מראש את העומס הצפוי בכיתות. 
+                      <p className="text-xs text-gray-600 leading-relaxed">
+                        התחזית מבוססת על אלגוריתם שמנתח את כלל הדיווחים שנאספו
+                        במערכת, ומעריך מראש את העומס הצפוי בכיתות.
                         <br />
-                        בחר בניין וכיתה לבדיקה ממוקדת, או השאר ריק לרשימת הכיתות הפנויות ביותר.
+                        בחר בניין וכיתה לבדיקה ממוקדת, או השאר ריק לרשימת הכיתות
+                        הפנויות ביותר.
                       </p>
 
                       {/* ROW 1: DAY OF WEEK & HOUR SELECTORS */}
@@ -1771,15 +1814,25 @@ function App() {
                           </select>
                         </div>
 
-                         <div>
+                        <div>
                           <label className="block text-xs font-semibold text-gray-500 mb-1">
                             שעה
                           </label>
                           <NumericAutocomplete
                             value={String(mlHour)}
                             options={[
-                              "8", "9", "10", "11", "12", "13",
-                              "14", "15", "16", "17", "18", "19",
+                              "8",
+                              "9",
+                              "10",
+                              "11",
+                              "12",
+                              "13",
+                              "14",
+                              "15",
+                              "16",
+                              "17",
+                              "18",
+                              "19",
                             ]}
                             renderLabel={(v) => `${v}:00`}
                             placeholder="הקלד שעה"
@@ -1792,47 +1845,47 @@ function App() {
                       </div>
 
                       {/* ROW 2: SMART CASCADING BUILDINGS & ROOMS SELECTORS */}
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1">
-                            בניין קמפוס
-                          </label>
-                          <NumericAutocomplete
-                            value={mlBuilding === "הכל" ? "" : mlBuilding}
-                            options={uniqueBuildings}
-                            renderLabel={(v) => `בניין ${v}`}
-                            placeholder=" הקלד מספר בניין או השאר ריק"
-                            onSelect={(v) => {
-                              setMlBuilding(v);
-                              setMlSpecificRoom("");
-                              resetPrediction();
-                            }}
-                            onClear={() => {
-                              setMlBuilding("הכל");
-                              setMlSpecificRoom("");
-                              resetPrediction();
-                            }}
-                          />
-                        </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                          בניין קמפוס
+                        </label>
+                        <NumericAutocomplete
+                          value={mlBuilding === "הכל" ? "" : mlBuilding}
+                          options={uniqueBuildings}
+                          renderLabel={(v) => `בניין ${v}`}
+                          placeholder=" הקלד מספר בניין או השאר ריק"
+                          onSelect={(v) => {
+                            setMlBuilding(v);
+                            setMlSpecificRoom("");
+                            resetPrediction();
+                          }}
+                          onClear={() => {
+                            setMlBuilding("הכל");
+                            setMlSpecificRoom("");
+                            resetPrediction();
+                          }}
+                        />
+                      </div>
 
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1">
-                            כיתה ספציפית
-                          </label>
-                          <NumericAutocomplete
-                            value={mlSpecificRoom}
-                            options={availableRoomsForBuilding}
-                            renderLabel={(v) => `כיתה ${v}`}
-                            placeholder="הקלד מספר כיתה או השאר ריק"
-                            onSelect={(v) => {
-                              setMlSpecificRoom(v);
-                              resetPrediction();
-                            }}
-                            onClear={() => {
-                              setMlSpecificRoom("");
-                              resetPrediction();
-                            }}
-                          />
-                        </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                          כיתה ספציפית
+                        </label>
+                        <NumericAutocomplete
+                          value={mlSpecificRoom}
+                          options={availableRoomsForBuilding}
+                          renderLabel={(v) => `כיתה ${v}`}
+                          placeholder="הקלד מספר כיתה או השאר ריק"
+                          onSelect={(v) => {
+                            setMlSpecificRoom(v);
+                            resetPrediction();
+                          }}
+                          onClear={() => {
+                            setMlSpecificRoom("");
+                            resetPrediction();
+                          }}
+                        />
+                      </div>
 
                       {/* ACTION BUTTON */}
                       <button
@@ -1848,9 +1901,7 @@ function App() {
                         disabled={isPredicting}
                         className="w-full bg-[#006937] text-white py-3.5 rounded-xl text-sm font-bold shadow-sm hover:bg-[#158061] transition-all disabled:opacity-50 flex justify-center items-center gap-2"
                       >
-                        {isPredicting
-                          ? "מחשב תחזית חכמה..."
-                          : "הצג תחזית"}
+                        {isPredicting ? "מחשב תחזית חכמה..." : "הצג תחזית"}
                       </button>
 
                       {/*  
@@ -1916,7 +1967,7 @@ function App() {
                           <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm space-y-2.5">
                             <div className="flex justify-between items-center pb-2 border-b border-gray-100">
                               <span className="text-xs font-bold text-gray-700">
-                                 5 הכיתות הפנויות ביותר:
+                                5 הכיתות הפנויות ביותר:
                               </span>
                               <span className="text-[10px] font-semibold text-gray-400">
                                 {mlPrediction.building_filter === "הכל"
@@ -2825,8 +2876,8 @@ function App() {
                         onClick={async () => {
                           try {
                             const res = await axios.get(
-                            `${import.meta.env.VITE_API_URL}/api/users/${editingUser.app_user_id}/history`,
-                              );
+                              `${import.meta.env.VITE_API_URL}/api/users/${editingUser.app_user_id}/history`,
+                            );
                             if (res.data.reports.length === 0) {
                               alert(
                                 `למשתמש ${editingUser.app_user_id} אין עדיין היסטוריית דיווחים.`,

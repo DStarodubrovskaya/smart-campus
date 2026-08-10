@@ -30,12 +30,17 @@ app.add_middleware(
 
 db = DatabaseService()
 
-IS_ENGINE_RUNNING = False
+IS_ENGINE_ALIVE = False   # Жив ли процесс вообще
+IS_ENGINE_PAUSED = False  # Стоит ли процесс на паузе
+MAX_IDLE_SECONDS = 180    # Максимальное время на паузе (3 минуты)
 
 # --- THE HEART OF THE PROJECT: SimPy Engine + Logic Trust Score ---
 async def run_simulation_engine():
-    global IS_ENGINE_RUNNING
-    IS_ENGINE_RUNNING = True
+    global IS_ENGINE_ALIVE, IS_ENGINE_PAUSED
+    IS_ENGINE_ALIVE = True
+    IS_ENGINE_PAUSED = False
+    idle_counter = 0  
+    
     print("🚀 === ENGINE STARTED WITH REAL DB & LOGIC ENGINE ===", flush=True)
     
     try:
@@ -118,14 +123,30 @@ async def run_simulation_engine():
         for uid, user_info in users_dict.items():
             env.process(student_agent(env, user_info, valid_rooms))
 
-        while IS_ENGINE_RUNNING:
-            env.step() 
+        while IS_ENGINE_ALIVE:
+            if not IS_ENGINE_PAUSED:
+                env.step() 
+                idle_counter = 0  # Сбрасываем таймер, если симуляция идет
+            else:
+                idle_counter += 1
+                
+                # Автовыключение через 3 минуты (180 секунд)
+                if idle_counter >= MAX_IDLE_SECONDS:
+                    print(f"🛑 === ENGINE TIMEOUT: Paused for over {MAX_IDLE_SECONDS} seconds. Auto-shutting down. ===", flush=True)
+                    IS_ENGINE_ALIVE = False
+                    IS_ENGINE_PAUSED = False
+                    break
+
             await asyncio.sleep(1) 
             
     except simpy.core.EmptySchedule:
         print("🛑 === SIMULATION FINISHED ===", flush=True)
     except Exception as e:
         print(f"❌ === ENGINE CRITICAL ERROR: {e} ===", flush=True)
+    finally:
+        # === НОВОЕ: Сброс флагов при выходе ===
+        IS_ENGINE_ALIVE = False
+        IS_ENGINE_PAUSED = False
 
 # --- API ENDPOINTS ---
 
@@ -155,8 +176,9 @@ SCENARIO_MAP = {
 
 @app.post("/api/simulation/start")
 async def start_simulation(payload: SimulationPayload, background_tasks: BackgroundTasks):
-    global IS_ENGINE_RUNNING
-    IS_ENGINE_RUNNING = False # Killing the old engine
+    global IS_ENGINE_ALIVE, IS_ENGINE_PAUSED
+    IS_ENGINE_ALIVE = False 
+    IS_ENGINE_PAUSED = False
     
     scenario_name = SCENARIO_MAP.get(payload.scenario_id, "1_basic_flow.csv")
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -186,18 +208,34 @@ async def get_logs():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+@app.post("/api/simulation/pause")
+async def pause_simulation():
+    """Ставит симуляцию на паузу"""
+    global IS_ENGINE_ALIVE, IS_ENGINE_PAUSED
+    if IS_ENGINE_ALIVE and not IS_ENGINE_PAUSED:
+        IS_ENGINE_PAUSED = True
+        print("⏸️ === SIMULATION PAUSED ===", flush=True)
+        return {"status": "success", "message": "Engine paused."}
+    return {"status": "info", "message": "Already paused or stopped."}
+
+@app.post("/api/simulation/resume")
+async def resume_simulation():
+    """Снимает с паузы"""
+    global IS_ENGINE_ALIVE, IS_ENGINE_PAUSED
+    if IS_ENGINE_ALIVE and IS_ENGINE_PAUSED:
+        IS_ENGINE_PAUSED = False
+        print("▶️ === SIMULATION RESUMED ===", flush=True)
+        return {"status": "success", "message": "Engine resumed."}
+    return {"status": "error", "message": "Cannot resume. Engine is not paused or not running."}
+
 @app.post("/api/simulation/stop")
 async def stop_simulation():
-    global IS_ENGINE_RUNNING
-    
-    if IS_ENGINE_RUNNING:
-        IS_ENGINE_RUNNING = False
-        print("🛑 === STOP SIGNAL RECEIVED FROM FRONTEND ===", flush=True)
-        return {"status": "success", "message": "Engine stopping..."}
-    else:
-        return {"status": "info", "message": "Engine is already stopped."}
-
-# --- NEW ENDPOINTS FOR THE FRONTEND (REAL USERS) ---
+    """Полностью убивает процесс (для кнопки End)"""
+    global IS_ENGINE_ALIVE, IS_ENGINE_PAUSED
+    IS_ENGINE_ALIVE = False
+    IS_ENGINE_PAUSED = False
+    print("🛑 === SIMULATION KILLED FROM FRONTEND ===", flush=True)
+    return {"status": "success", "message": "Engine completely stopped."}
 
 @app.post("/api/users/login")
 async def user_login(payload: UserLoginPayload):
@@ -270,11 +308,24 @@ async def submit_real_user_report(payload: RealUserReport):
                 
             db_id, trust_score, tier = user
 
-            room_status_row = conn.execute(
-                text("SELECT status FROM occupancy_status WHERE room_id = :rid"),
-                {"rid": payload.room_id}
-            ).fetchone()
-            current_status = room_status_row[0] if room_status_row else "FREE"
+            # ==========================================
+            # ИСПРАВЛЕНИЕ: Точно такой же SQL, как при загрузке карты.
+            # Сначала проверяем живой статус за последний час, если пусто - смотрим в расписание.
+            # ==========================================
+            status_query = text("""
+                SELECT 
+                    COALESCE(
+                        (SELECT status FROM occupancy_status WHERE room_id = :rid AND last_updated >= NOW() - INTERVAL '60 minutes'),
+                        (SELECT CASE WHEN EXISTS (
+                            SELECT 1 FROM schedule_events 
+                            WHERE room_id = :rid 
+                            AND semester LIKE '%א%' 
+                            AND day_of_week = 1 
+                            AND '10:00:00'::TIME BETWEEN start_time AND end_time
+                        ) THEN 'BUSY' ELSE 'FREE' END)
+                    )
+            """)
+            current_status = conn.execute(status_query, {"rid": payload.room_id}).scalar() or "FREE"
 
         # 2. Transfer everything to the Trust Logic Engine
         logic = TrustLogicEngine(db)
@@ -526,8 +577,12 @@ async def get_simulation_status():
     Allows the frontend to check if the engine is currently running in the background.
     Vital for keeping the simulation alive when students log in/out.
     """
-    global IS_ENGINE_RUNNING
-    return {"status": "success", "is_running": IS_ENGINE_RUNNING}
+    global IS_ENGINE_ALIVE, IS_ENGINE_PAUSED
+    return {
+        "status": "success", 
+        "is_running": IS_ENGINE_ALIVE,
+        "is_paused": IS_ENGINE_PAUSED
+    }
 
 
 @app.get("/api/admin/users")
