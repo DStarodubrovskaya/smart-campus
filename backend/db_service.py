@@ -6,21 +6,21 @@ import pandas as pd
 class DatabaseService:
     """
     Data Access Layer (DAL)
-    Responsible exclusively for the connection with the PostgreSQL database (Supabase).
-    Contains no simulation business logic.
+    Abstracts direct PostgreSQL (Supabase) interactions via SQLAlchemy.
+    Strictly isolates state persistence from consensus logic (TrustLogicEngine).
     """
     def __init__(self):
-        # Load environment variables and connect to the database
         load_dotenv()
         db_url = os.getenv("DATABASE_URL")
         if not db_url:
-            raise ValueError("❌ Error: DATABASE_URL not found in .env file")
-        
+            raise ValueError("DATABASE_URL is missing in environment variables.")
+
+        # Connection pooling is handled automatically by SQLAlchemy's create_engine
         self.engine = create_engine(db_url)
-        self.last_cleared_id = 0  # Cutoff to clear the terminal without deleting data
+        # Session state: Cutoff ID for clearing terminal UI without dropping DB records
+        self.last_cleared_id = 0  
 
     def get_valid_locations(self):
-        """Retrieves a list of all available rooms from the database."""
         with self.engine.connect() as conn:
             res = conn.execute(text("""
                 SELECT b.code, r.room_number, r.id 
@@ -30,14 +30,13 @@ class DatabaseService:
             return [{"b_code": row[0], "room": row[1], "room_id": row[2]} for row in res]
 
     def get_all_users(self):
-        """Loads all users and their corresponding Trust Scores."""
         users = {}
         with self.engine.connect() as conn:
             res = conn.execute(text("SELECT id, app_user_id, role, trust_score, tier FROM users WHERE app_user_id LIKE 'U%'"))
             for row in res:
                 users[row[1]] = {
-                    "db_id": row[0],  # Internal database ID (number)
-                    "id": row[1],     # String ID (e.g. 'U751')
+                    "db_id": row[0],
+                    "id": row[1],
                     "type": row[2],
                     "trust": float(row[3]),
                     "tier": row[4]
@@ -45,7 +44,7 @@ class DatabaseService:
         return users
 
     def update_user_trust(self, uid, trust_delta):
-        """Updates the trust score by applying a delta, limited between 0.0 and 1.0."""
+        """Applies trust delta with strict [0.0, 1.0] boundaries directly in SQL."""
         with self.engine.connect() as conn:
             conn.execute(text("""
                 UPDATE users 
@@ -55,7 +54,7 @@ class DatabaseService:
             conn.commit()
 
     def update_room_status(self, room_id, status):
-            """Records the new room status (State Machine logic)."""
+            """Implements Upsert (Insert on Conflict Update) for room occupancy."""
             with self.engine.begin() as conn:
                 conn.execute(text("""
                     INSERT INTO occupancy_status (room_id, status, last_updated) 
@@ -65,7 +64,7 @@ class DatabaseService:
                 """), {"rid": room_id, "stat": status})
 
     def check_schedule_status(self, b_code, room, current_sem, db_day, check_time_str):
-        """Checks the official schedule to verify if a class is currently taking place."""
+        """Cross-references real-time parameters with the static BIU schedule."""
         query = text("""
             SELECT 1 FROM schedule_events se
             JOIN rooms r ON se.room_id = r.id
@@ -88,7 +87,7 @@ class DatabaseService:
             return "BUSY" if res else "FREE"
         
     def update_report_message(self, report_id, message):
-        """Saves the logic engine's thought process directly into the report."""
+        """Injects algorithmic consensus reasoning into the report log for UI Explainability."""
         with self.engine.begin() as conn:
             conn.execute(text("""
                 UPDATE report_history 
@@ -97,7 +96,6 @@ class DatabaseService:
             """), {"msg": message, "id": report_id})
 
     def add_report_to_history(self, user_db_id, room_db_id, status, trust):
-        """Saves raw report to the database and returns its ID."""
         with self.engine.begin() as conn:
             res = conn.execute(text("""
                 INSERT INTO report_history (user_id, room_id, reported_status, trust_at_report)
@@ -108,7 +106,7 @@ class DatabaseService:
 
    
     def get_pending_reports(self, room_db_id):
-        """Only takes ACTIVE reports to calculate consensus."""
+        """Fetches unresolved reports (TTL < 15 min) for the consensus engine."""
         with self.engine.connect() as conn:
             res = conn.execute(text("""
                 SELECT rh.user_id, u.app_user_id, rh.reported_status, rh.trust_at_report 
@@ -122,7 +120,7 @@ class DatabaseService:
             return [{"user_id": r[0], "app_user_id": r[1], "status": r[2], "trust": r[3]} for r in res]
 
     def clear_room_history(self, room_db_id):
-        """Now we don't delete logs, we just turn them off for math."""
+        """Soft-deletes reports by flag instead of dropping rows to preserve ML training data."""
         with self.engine.connect() as conn:
             conn.execute(text("""
                 UPDATE report_history 
@@ -132,23 +130,20 @@ class DatabaseService:
             conn.commit()
     
     def reset_simulation_state(self, scenario_file):
-        """Complete reset of the simulation state (DB) and loading a new scenario."""
-        
-        #1: Read CSV and prepare dictionaries in advance
+        """
+        Executes a bulk transactional reset. 
+        Uses engine.begin() to ensure atomic execution (all or nothing) to avoid corrupted states.
+        """
         df = pd.read_csv(scenario_file)
         users_to_insert = df.to_dict(orient='records')
 
-        # Use begin() for an automatic transaction (everything will be done at once)
         with self.engine.begin() as conn:
-            
-            #2. ONE request to clear the database (not real users' history)
             conn.execute(text("""
                 DELETE FROM users WHERE app_user_id LIKE 'U%';
                 TRUNCATE TABLE occupancy_status CASCADE;
                 ALTER SEQUENCE occupancy_status_id_seq RESTART WITH 1;
             """))
 
-            #3. ONE request to load the entire crowd (Bulk Insert)
             conn.execute(
                 text("""
                     INSERT INTO users (app_user_id, role, trust_score, tier, successful_reports, total_reports) 
@@ -164,7 +159,10 @@ class DatabaseService:
             )
         
     def clear_all_history(self):
-        """Completely clears the report history and room statuses (clear button for admins)."""
+        """
+        Hard reset: Completely clears report history and room statuses.
+        Used by admins to wipe the database clean.
+        """
         with self.engine.begin() as conn:
             conn.execute(text("""
                 TRUNCATE TABLE report_history CASCADE;
@@ -174,20 +172,18 @@ class DatabaseService:
             """))
 
     def clear_terminal_view(self):
-        """
-        Remembers the highest report ID. The terminal will only show logs AFTER this ID,
-        leaving the actual database records 100% intact.
-        """
+        """Implements a non-destructive log clear by bumping the visibility cursor."""
         with self.engine.connect() as conn:
             res = conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM report_history")).scalar()
             self.last_cleared_id = int(res)
-            print(f"🧹 Terminal view cleared. New logs must have ID > {self.last_cleared_id}")
         
     def get_current_rooms(self):
-        """Gets current room statuses for the frontend with a fallback to the schedule."""
+        """
+        Generates the campus map state.
+        Priority: Live crowdsourced data (TTL 60 min) > Static Schedule fallback.
+        Note: Day/Time parameters are currently mocked for Demo purposes.
+        """
         with self.engine.connect() as conn:
-            # For the simulation, we're hard-coding Monday 10:00, Semester A (as in main.py).
-            # In production, the server's actual current time (CURRENT_TIMESTAMP) will be used here.
             res = conn.execute(text("""
                 SELECT 
                     r.room_number, 
@@ -259,9 +255,8 @@ class DatabaseService:
             return logs[::-1]
         
     def update_user_post_report(self, user_id, trust_delta):
-        """Updates the user's rating after a report, increases counters, and automatically increases the user's tier if the conditions are met."""
+        """Updates reputation metrics and handles automated Gamification tier progression."""
         with self.engine.begin() as conn:
-            # 1. We are updating the rating and overall report counter
             conn.execute(
                 text("""
                     UPDATE users 
@@ -272,15 +267,12 @@ class DatabaseService:
                 {"delta": trust_delta, "uid": user_id}
             )
 
-            # 2. If the report was correct (delta > 0)
             if trust_delta >= 0:
-                # Increase the success counter
                 conn.execute(
                     text("UPDATE users SET successful_reports = successful_reports + 1 WHERE id = :uid"),
                     {"uid": user_id}
                 )
 
-                # Checking if it's time to level up
                 user = conn.execute(
                     text("SELECT role, tier, successful_reports, trust_score FROM users WHERE id = :uid"),
                     {"uid": user_id}
@@ -290,14 +282,12 @@ class DatabaseService:
                     u_role, u_tier, u_succ, u_trust = user
                     new_tier = u_tier
 
-                    # Gamification logic
                     if u_role == "Student":
                         if u_tier == "Newbie" and u_succ >= 5:
                             new_tier = "Resident"
                         elif u_tier == "Resident" and u_succ >= 50 and float(u_trust) >= 0.75:
                             new_tier = "VIP"
 
-                    # Save the new level if it has changed
                     if new_tier != u_tier:
                         conn.execute(
                             text("UPDATE users SET tier = :new_tier WHERE id = :uid"),
@@ -306,21 +296,10 @@ class DatabaseService:
 
     def search_advanced_rooms(self, min_minutes: int, building_code: str):
         """
-        Searches for available rooms based on building filters and the minimum time until the next class.
+        Time-aware advanced search.
+        Evaluates current room occupancy against the static schedule's next event delta.
         """
         with self.engine.connect() as conn:
-            #  ======
-            # ⚠️ ATTENTION: DEMO MODE
-            #  ======
-            # Currently, the SQL query uses a hardcoded time ('10:00:00')
-            # and day of the week (1 = Monday, semester 'א').
-            #
-            # To switch to PRODUCTION (real time), replace the following in the query:
-            # 1. '10:00:00'::TIME -> :current_time
-            # 2. day_of_week = 1 -> day_of_week = :current_day
-            # And pass these values ​​to conn.execute() using datetime.now()
-            #  ===
-            
             query = text("""
                 WITH CurrentStatus AS (
                     -- 1. Find out which rooms are available RIGHT NOW (at 10:00)
@@ -375,7 +354,6 @@ class DatabaseService:
             ]
         
     def get_user_report_history(self, app_user_id: str):
-        """Gets the report history of a specific user for display in the profile."""
         with self.engine.connect() as conn:
             res = conn.execute(text("""
                 SELECT 
@@ -402,15 +380,10 @@ class DatabaseService:
                 for row in res
             ]
 
-    #  
-    # ADMIN USER MANAGEMENT METHODS
-    #  
+    # --- ADMIN USER MANAGEMENT METHODS ---
 
     def get_all_users_list(self):
-        """
-        Returns a formatted list of all users for the Admin panel table.
-        Dynamically counts real reports from report_history so numbers never get out of sync!
-        """
+        """Admin dashboard aggregations. Joins user metrics with total report counts."""
         with self.engine.connect() as conn:
             res = conn.execute(text("""
                 SELECT 
@@ -437,7 +410,6 @@ class DatabaseService:
             } for row in res]
 
     def update_user_admin(self, app_user_id, trust_score, tier):
-        """Admin updates a specific user's trust score and tier."""
         with self.engine.begin() as conn:
             conn.execute(text("""
                 UPDATE users
@@ -446,6 +418,5 @@ class DatabaseService:
             """), {"trust": trust_score, "tier": tier, "uid": app_user_id})
 
     def delete_user(self, app_user_id):
-        """Admin deletes a user from the database completely."""
         with self.engine.begin() as conn:
             conn.execute(text("DELETE FROM users WHERE app_user_id = :uid"), {"uid": app_user_id})

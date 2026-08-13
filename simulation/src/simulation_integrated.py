@@ -1,90 +1,87 @@
 import sys
 import os
-
-# Add the project's root folder (smart-campus) to the Python search path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-
 import time
 import random
 from colorama import Fore, Style, init
 
-# Import our custom services
+# Absolute path resolution for module imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
 from backend.db_service import DatabaseService
 from logic_engine import TrustLogicEngine
 
-# Initialize colorama for colored console output
+# Initialize terminal colors for log readability
 init(autoreset=True)
 
-# Configuration
+# Simulation throttle to allow visual monitoring
 SIMULATION_SPEED_SEC = 1.5
 
 def run_simulation():
-    print(f"{Fore.CYAN}🚀 Initializing Matrix (Trust Score 2.0)...{Style.RESET_ALL}")
+    """
+    Standalone CLI Simulation Runner.
+    Executes a continuous loop of randomized synthetic user reports against the TrustLogicEngine.
+    Used exclusively as an integration testing tool to validate consensus thresholds, 
+    gamification mechanics, and database interactions directly in the terminal, bypassing the HTTP layer.
+    """
+    print(f"{Fore.CYAN}🚀 Initializing Matrix (Trust Score CLI Debugger)...{Style.RESET_ALL}")
     
-    # Initialize DB and Logic Engine
     db = DatabaseService()
     logic_engine = TrustLogicEngine(db)
 
-    # Load initial data from DB
     users_dict = db.get_all_users()
     users = list(users_dict.values())
     locations = db.get_valid_locations()
 
     if not users or not locations:
-        print("❌ Error: No users or locations found in the database. Please run seed_data.py first.")
+        print("Error: No users or locations found in the database. Please run seed_data.py first.")
         return
 
-    print(f"✅ Users loaded: {len(users)}")
-    print(f"✅ Locations loaded: {len(locations)}")
+    print(f"Users loaded: {len(users)}")
+    print(f"Locations loaded: {len(locations)}")
     print("-" * 60)
     print("Simulation started. Press Ctrl+C to stop.")
 
     try:
         while True:
-            # 1. Select a random user and a random room
+            # 1. Select random entities for the test iteration
             user = random.choice(users)
             room = random.choice(locations)
             
-            # Simulate checking the schedule to get the "actual" status 
-            # (In a real app, this comes from check_schedule_status)
+            # 2. Stochastic Honesty Model
             actual_status = random.choice(["FREE", "BUSY"])
-            
-            # 2. Simulate user honesty based on their Trust Score
             is_honest = random.random() < user['trust']
+
             if is_honest:
                 reported_status = actual_status
                 action_color = Fore.GREEN
             else:
-                # User lies or makes a mistake
+                # Inject logical errors/malice based on trust probability
                 reported_status = "BUSY" if actual_status == "FREE" else "FREE"
                 action_color = Fore.RED
 
-            # Current official room status (defaulting to FREE for simulation context)
+            # Baseline default for CLI test context
             current_room_status = "FREE" 
 
-            # 3. SEND REPORT TO THE LOGIC ENGINE (The "Brain")
+            # 3. Feed the report into the Consensus Pipeline
             result = logic_engine.process_report(
                 user_db_id=user['db_id'], 
                 user_trust=user['trust'],
-                user_tier=user.get('tier', 'Resident'), # Insurance if the tier doesn't arrive for some reason
+                user_tier=user.get('tier', 'Resident'),
                 room_db_id=room['room_id'],
                 reported_status=reported_status,
                 current_room_status=current_room_status
             )
 
-            # 4. PROCESS THE ENGINE'S DECISION
-            
-            # If the room status has changed, we update it in the database
+            # 4. State Persistence and Gamification Updates
             if result["new_status"] != current_room_status:
                 db.update_room_status(room['room_id'], result["new_status"])
                 current_room_status = result["new_status"]
 
-            # We distribute fines/rewards and collect a nice line for the log
             trust_log_parts = []
             for db_uid, trust_delta in result["trust_updates"].items():
                 db.update_user_trust(db_uid, trust_delta)
                 
-                # We look for the user's string ID to display on the screen and update his local rating
+                # Update local in-memory state for subsequent loop iterations
                 str_id = "Unknown"
                 for u in users:
                     if u['db_id'] == db_uid:
@@ -92,31 +89,25 @@ def run_simulation():
                         str_id = u['id']
                         break
                 
-                # Form a colored line for rating changes
                 if trust_delta > 0:
                     trust_log_parts.append(f"{str_id} ({Fore.GREEN}+{trust_delta}{Style.RESET_ALL})")
                 else:
                     trust_log_parts.append(f"{str_id} ({Fore.RED}{trust_delta}{Style.RESET_ALL})")
 
-            # 5. FORMATTED CONSOLE LOGGING
-            tier_char = user.get('tier', 'R')[0] # Возьмет первую букву: Newbie -> N, VIP -> V
+            # 5. CLI Dashboard Formatting
+            tier_char = user.get('tier', 'R')[0]
             user_str = f"User {user['id']:<5} [{tier_char}] (Tr: {user['trust']:.2f})"
             room_str = f"Room {room['b_code']}-{room['room']}"
             report_str = f"[{reported_status}]"
             
-            # Color the report status
             stat_color = Fore.MAGENTA if reported_status == "BUSY" else Fore.BLUE
             
-            # Preparing a message from "The Brain"
             event_msg = result['event_msg']
             if trust_log_parts:
-                # If there were rating changes, attach them to the message
                 event_msg += f" | {Fore.CYAN}Trust updates:{Style.RESET_ALL} " + ", ".join(trust_log_parts)
             
-            # Final print
             print(f"{user_str} | {room_str:<12} | {action_color}Reports: {stat_color}{report_str:<6}{Style.RESET_ALL} | 🧠 {Fore.YELLOW}{event_msg}{Style.RESET_ALL}")
 
-            # Pause before the next event
             time.sleep(SIMULATION_SPEED_SEC)
 
     except KeyboardInterrupt:
