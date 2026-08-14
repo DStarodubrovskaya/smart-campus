@@ -14,6 +14,17 @@ The interface is in Hebrew and laid out right-to-left, matching the language of 
 
 Around that core there is an ETL pipeline that scrapes and normalizes the university course catalog, a PostgreSQL database, a FastAPI backend with an occupancy state machine and a simulation engine, a machine-learning module that forecasts availability, and a React frontend built around an interactive campus map.
 
+## Project Status
+
+This is a working demo, built as a proof of concept for adoption by the university. It handles concurrent use — multiple students and lecturers reporting at the same time, with the consensus algorithm resolving disagreements — and runs against a live cloud database rather than mock data.
+
+Development is ongoing, and a few parts are deliberately simplified for the demo:
+
+- The schedule-based search evaluates availability against a fixed reference point (Monday, 10:00, semester א) instead of the current date and time.
+- The timetable comes from a one-off scraped and cleaned dataset. In a deployed system it would be fed directly from the university's own scheduling systems.
+- New-user probation, Trust Score thresholds and the forecasting model are tuned on simulated activity, and would need recalibration against real campus usage.
+
+
 ## Live Deployment
 
 | Service | Platform | URL |
@@ -105,33 +116,14 @@ Create a `.env` file in the project root with the Supabase connection string:
 
     DATABASE_URL="postgresql://user:password@host:port/dbname"
 
-## Building the Database
+## Where the Data Came From
 
-These steps are run once, in order, to build everything from scratch. Note that two of the scripts rely on relative paths and must be run from inside their own folder — those are marked below.
+The database is already provisioned and populated on Supabase; with `DATABASE_URL` pointing at it, the application runs as-is.
 
-**Step 1. Gather the raw data**
+The dataset behind it was prepared once, before the system itself was built. The course catalog was scraped from the university portal (`tools/`), normalized by the ETL pipeline (`cleaning_data/`), and loaded into PostgreSQL by `database/seed_data.py`. The forecasting model was then trained on generated occupancy history (`ml_forecasting/`). The `cleaning_data/`, `database/` and `ml_forecasting/` directories each have their own README describing that step in detail.
 
-    cd tools
-    python scrape.py
+Rebuilding from scratch is only relevant when starting a fresh database: `database/init_schema.sql` drops and recreates all six tables, so it must never be pointed at the shared cloud instance.
 
-**Step 2. Clean it** (run from inside `cleaning_data/`)
-
-    cd cleaning_data
-    python main.py
-
-**Step 3. Create the schema and populate the database**
-
-    python database/seed_data.py
-
-**Step 4. Train the ML model — optional** (run from inside `ml_forecasting/`)
-
-    cd ml_forecasting
-    python generate_ml_dataset.py
-    python train_model.py
-
-**Step 5. Run the standalone logic engine — optional**
-
-    python simulation/src/simulation_integrated.py
 
 ## Running the Application
 

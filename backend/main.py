@@ -113,7 +113,7 @@ async def run_simulation_engine():
                         if user_data["db_id"] == db_uid:
                             user_data["trust"] = max(0.0, min(1.0, user_data["trust"] + trust_delta))
 
-                    print(f"[Time: {env.now:03d}] User {user_data['id']} (Tr: {user_data['trust']:.2f}) | Room {target_room['b_code']}-{target_room['room']} | Report: [{reported_status}] | 🧠 {result['event_msg']}", flush=True)
+                    print(f"[Time: {env.now:03d}] User {user_data['id']} (Tr: {user_data['trust']:.2f}) | Room {target_room['b_code']}-{target_room['room']} | Report: [{reported_status}] |  {result['event_msg']}", flush=True)
                 except Exception as inner_e:
                     print(f"DB Error for Agent {user_data['id']}: {inner_e}", flush=True)
                 

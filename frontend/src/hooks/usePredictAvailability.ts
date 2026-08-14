@@ -25,7 +25,7 @@ export interface ForecastResponse {
   building_filter: string;
   top_rooms: RoomForecastItem[];
   specific_room: RoomForecastItem | null;
-  room_exists?: boolean; // <-- Добавили это поле
+  room_exists?: boolean; // 
   model_used: string;
 }
 

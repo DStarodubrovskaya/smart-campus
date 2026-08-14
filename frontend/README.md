@@ -1,73 +1,51 @@
-# React + TypeScript + Vite
+# Frontend Application
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This directory contains the React single-page application that students and lecturers actually use: an interactive campus map, live classroom status, crowdsourced reporting, schedule-based search, ML availability forecasts, and the admin panel. The interface is in Hebrew and laid out right-to-left.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **React 19 + TypeScript**, bundled with **Vite**
+- **Tailwind CSS 4** for styling
+- **Leaflet** with **React Leaflet** for the campus map
+- **TanStack React Query** for server state and polling, **Axios** for HTTP
 
-## React Compiler
+## Files & Structure
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **`src/App.tsx`**: The application shell. Holds the session, tab navigation, and all five views (map, search, profile, report, admin).
+- **`src/components/CampusMap.tsx`**: The Leaflet map. Aggregates room statuses per building, renders count markers, and handles search fly-to and fullscreen.
+- **`src/hooks/`**: One React Query hook per API endpoint, each owning its own cache key and invalidation rules — `useRooms`, `useSearchRooms`, `useSubmitReport`, `usePredictAvailability`, `useUserHistory`, `useAdminUsers`, and the simulation controls.
+- **`src/index.css`**: Tailwind entry point plus a few global rules.
+- **`src/assets/`**: Logos and static images.
+- **`public/`**: Favicons and the app icon served as-is.
 
-## Expanding the ESLint configuration
+## Setup
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Configuration files are not kept in Git. Before the first run, create a `.env` file in this directory pointing at the backend:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+VITE_API_URL=http://127.0.0.1:8000
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Install the dependencies (first time only):
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
+
+## Usage
+
+Start the development server:
+
+```bash
+npm run dev
+```
+
+The interface opens at http://localhost:5173. The backend must be running in parallel — or set `VITE_API_URL` to the deployed API to work against the cloud instead.
+
+Build the production bundle into `dist/`:
+
+```bash
+npm run build
+```
+
+This is the same command Render runs on deploy, so a local build failure means the deploy will fail too.
