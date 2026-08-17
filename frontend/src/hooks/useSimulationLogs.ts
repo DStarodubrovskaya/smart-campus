@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import axios from 'axios'
 
-// 1. Define the TypeScript interface matching the backend log payload
+// Log entry as returned by the backend
 export interface SimulationLog {
   id?: string;
   timestamp: string;       // e.g., "12:24:01"
@@ -13,7 +13,6 @@ export interface SimulationLog {
 
 const fetchLogs = async (): Promise<SimulationLog[]> => {
   const apiUrl = import.meta.env.VITE_API_URL
-  // Assumes your backend designer mapped logs to a /api/simulation/logs endpoint
   const response = await axios.get(`${apiUrl}/api/simulation/logs`)
   return response.data
 }
@@ -22,7 +21,7 @@ export const useSimulationLogs = (isSimulationActive: boolean) => {
   return useQuery<SimulationLog[]>({
     queryKey: ['simulationLogs'],
     queryFn: fetchLogs,
-    // Poll every 1 second only when the simulation dashboard is running!
+    // Poll once per second while the simulation is running
     refetchInterval: isSimulationActive ? 1000 : false,
   })
 }

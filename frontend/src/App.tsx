@@ -21,7 +21,7 @@ import {
   type AdminUser,
 } from "./hooks/useAdminUsers";
 
-// Design Token Color Helper based on your official specification sheet
+// Maps an occupancy status to its design-system colors and Hebrew label
 const getStatusStyles = (status: string) => {
   switch (status?.toUpperCase()) {
     case "FREE":
@@ -54,6 +54,21 @@ const getStatusStyles = (status: string) => {
       };
   }
 };
+
+// Tier is stored in English in the database; these are the labels shown to the user.
+const tierLabel = (tier: string) => {
+  switch (tier) {
+    case "Newbie":
+      return "חדש";
+    case "Resident":
+      return "ותיק";
+    case "VIP":
+      return "מצטיין";
+    default:
+      return tier;
+  }
+};
+
 // Formats the "free until" time: strips seconds, or shows a Hebrew note when no classes remain.
 const formatUntil = (t: any) => {
   const s = String(t ?? "");
@@ -160,7 +175,7 @@ function App() {
   const [isAdminLogin, setIsAdminLogin] = useState<boolean>(false);
   const [adminPassword, setAdminPassword] = useState<string>("");
 
-  // --- PERSISTENT SESSION (localStorage) ---
+  // -- PERSISTENT SESSION (localStorage) 
   const [currentUser, setCurrentUser] = useState<any | null>(() => {
     const saved = localStorage.getItem("campus_session");
     if (saved) {
@@ -182,7 +197,7 @@ function App() {
     }
   }, [currentUser]);
 
-  // --- ADMIN USER MANAGER MODAL STATE ---
+  // --- ADMIN USER MANAGER MODAL STATE 
   const [showUserManager, setShowUserManager] = useState(false);
   const [adminUserSearch, setAdminUserSearch] = useState<string>("");
   const { data: adminUsersList, isLoading: isLoadingUsers } = useAdminUsers(
@@ -207,12 +222,12 @@ function App() {
             .includes(adminUserSearch.trim().toLowerCase()),
       )
     : [];
-  // --- EDIT USER LOCAL STATE ---
+  // --- EDIT USER LOCAL STATE 
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [editTrust, setEditTrust] = useState<number>(0.5);
   const [editTier, setEditTier] = useState<string>("Resident");
 
-  // --- BACKGROUND SIMULATION PERSISTENCE CHECK ---
+  // --- BACKGROUND SIMULATION PERSISTENCE CHECK 
   // When any user logs in or refreshes, we check if the Python engine is running
   useEffect(() => {
     axios
@@ -223,7 +238,6 @@ function App() {
         }
       })
       .catch(() => {
-        // Silent catch if backend is offline
       });
   }, []);
 
@@ -241,7 +255,6 @@ function App() {
   const [selectedScenario, setSelectedScenario] = useState<number>(1);
   const [showBookingSoon, setShowBookingSoon] = useState(false);
 
-  // --- ML FORECASTING STATE (Smart Cascading Dropdowns) ---
   const [mlDayOfWeek, setMlDayOfWeek] = useState<number>(0);
   const [mlHour, setMlHour] = useState<number>(14);
   const [mlBuilding, setMlBuilding] = useState<string>("הכל");
@@ -272,6 +285,69 @@ function App() {
   const { data: userHistory, isLoading: isLoadingHistory } = useUserHistory(
     currentUser?.app_user_id,
   );
+
+     // Achievement badges are derived from the user's own report history
+  const reportCount = userHistory?.length ?? 0;
+
+  // Duolingo-style streak: consecutive days ending today, or yesterday while today is still open
+  const currentStreak = (() => {
+    if (!userHistory || userHistory.length === 0) return 0;
+    // Timestamps arrive from the API as "DD/MM/YYYY HH:MM"
+    const days = new Set(
+      userHistory.map((r: any) => {
+        const [dd, mm, yyyy] = String(r.timestamp)
+          .split(" ")[0]
+          .split("/")
+          .map(Number);
+        return Date.UTC(yyyy, mm - 1, dd);
+      }),
+    );
+
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const now = new Date();
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // A streak stays alive until the end of the day after the last report
+    let cursor = days.has(today) ? today : today - DAY_MS;
+    if (!days.has(cursor)) return 0;
+
+    let streak = 0;
+    while (days.has(cursor)) {
+      streak++;
+      cursor -= DAY_MS;
+    }
+    return streak;
+  })();
+
+  const achievements = {
+    firstReport: reportCount >= 1,
+    streakDays: currentStreak,
+    highAccuracy: Number(currentUser?.trust_score ?? 0) >= 0.8,
+    twentyReports: reportCount >= 20,
+  };
+
+    // Pioneer banner: dismissed by the user, remembered per account
+  const [pioneerBannerDismissed, setPioneerBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    setPioneerBannerDismissed(
+      localStorage.getItem(
+        `campus_pioneer_dismissed:${currentUser.app_user_id}`,
+      ) === "1",
+    );
+  }, [currentUser?.app_user_id]);
+
+  const dismissPioneerBanner = () => {
+    if (currentUser) {
+      localStorage.setItem(
+        `campus_pioneer_dismissed:${currentUser.app_user_id}`,
+        "1",
+      );
+    }
+    setPioneerBannerDismissed(true);
+  };
+
   const { mutate: clearLogs, isPending: isClearingLogs } = useClearLogs();
 
   // Automatically filter available rooms based on selected building
@@ -425,39 +501,30 @@ function App() {
     const container = terminalContainerRef.current;
     if (!container) return;
 
-    // 1. THRESHOLD CHECK: Is the user currently looking at the bottom area?
-    // We check if the user is within 60 pixels of the very bottom line.
+    // Only auto-scroll if the user is already near the bottom (within 60px)
     const isUserAtBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight <=
       60;
 
-    // 2. CONDITIONAL SNAP: Only push the scrollbar down if they were already at the bottom
+    
     if (isUserAtBottom) {
       container.scrollTop = container.scrollHeight;
     }
   }, [logs]);
 
-  const handleToggleSimulation = () => {
-    if (!isSimulationActive) {
-      startSimulation({ scenario_id: selectedScenario });
-      setIsSimulationActive(true);
-    } else {
-      stopSimulation();
-      setIsSimulationActive(false);
-    }
-  };
+ 
 
   // Define styling colors based on log payload type
   const getLogColor = (type: string) => {
     switch (type) {
       case "success":
-        return "#006937"; // Green
+        return "#006937";
       case "warning":
-        return "#EF9F27"; // Yellow
+        return "#EF9F27";
       case "error":
-        return "#E24B4A"; // Red
+        return "#E24B4A";
       default:
-        return "#ffffff"; // White Info
+        return "#ffffff"; 
     }
   };
 
@@ -680,10 +747,21 @@ function App() {
             {currentUser?.isImpersonated && (
               <div className="bg-amber-500 text-black px-4 py-2 text-center text-xs font-bold flex justify-between items-center shadow-md sticky top-0 z-[60]">
                 <div className="flex items-center gap-1.5">
-                  <span>👁️</span>
+                   <svg
+                    className="w-3.5 h-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
                   <span>
                     מצב צפייה כמשתמש: <strong>{currentUser.app_user_id}</strong>{" "}
-                    ({currentUser.role}) · דרגה: {currentUser.tier}
+                     ({currentUser.role}) · דרגה: {tierLabel(currentUser.tier)}
                   </span>
                 </div>
                 <button
@@ -763,8 +841,8 @@ function App() {
                     onClick={() => {
                       setCurrentUser(null);
                       setShowLogout(false);
-                      setIsAdminLogin(false); //brings back to general login page
-                      setAdminPassword(""); //erases admin password
+                      setIsAdminLogin(false);
+                      setAdminPassword(""); 
                     }}
                     className="flex-1 bg-[#E24B4A] text-white py-2.5 rounded-xl font-bold text-sm"
                   >
@@ -840,7 +918,7 @@ function App() {
                 {/* Search + filter row above the map */}
                 <div dir="rtl" className="relative z-20">
                   <div className="flex items-center gap-2">
-                    {/* Поиск (основной, широкий) */}
+                    {/* Search (primary, wide) */}
                     <div className="relative flex-1">
                       <input
                         type="text"
@@ -903,7 +981,7 @@ function App() {
                       )}
                     </div>
 
-                    {/* Фильтр (поменьше, слева) */}
+                  	{/* Filter (compact, on the left) */}
                     <div className="relative shrink-0">
                       <button
                         onClick={() => setShowFilter((s) => !s)}
@@ -1098,13 +1176,13 @@ function App() {
                       ))}
                     </div>
 
-                    {/* Кнопки управления симуляцией */}
+                    {/* Simulation control buttons */}
                     {!isSimulationActive ? (
                       <button
                         onClick={() => {
                           startSimulation({ scenario_id: selectedScenario });
                           setIsSimulationActive(true);
-                          setIsSimulationPaused(false); // Сбрасываем паузу при новом старте
+                          setIsSimulationPaused(false); 
                         }}
                         disabled={isStartingEngine}
                         className="w-full bg-[#006937] text-white py-3 px-4 rounded-xl text-base font-semibold shadow-sm transition-all hover:bg-[#158061]"
@@ -1114,7 +1192,7 @@ function App() {
                           : "הפעל מנוע סימולציה (Start)"}
                       </button>
                     ) : !isSimulationPaused ? (
-                      /* ЕСЛИ РАБОТАЕТ: Только одна огромная кнопка Паузы */
+                    /* RUNNING: a single large Pause button */
                       <button
                         onClick={() => {
                           pauseSimulation();
@@ -1122,10 +1200,10 @@ function App() {
                         }}
                         className="w-full bg-amber-500 text-white py-3 px-4 rounded-xl text-base font-semibold shadow-sm hover:bg-amber-600 transition-all"
                       >
-                        השהה (Pause)
+                        השהה 
                       </button>
                     ) : (
-                      /* ЕСЛИ НА ПАУЗЕ: Большая "Продолжить" и маленькая "Стоп" */
+                      /* PAUSED: large Resume plus a small Stop */
                       <div className="flex gap-2">
                         <button
                           onClick={() => {
@@ -1134,18 +1212,18 @@ function App() {
                           }}
                           className="flex-[2] bg-[#006937] text-white py-3 rounded-xl text-base font-semibold shadow-sm hover:bg-[#158061] transition-all"
                         >
-                          המשך (Resume)
+                          המשך 
                         </button>
 
                         <button
                           onClick={() => {
-                            stopSimulation(); // Вызывает эндпоинт, который полностью убивает бэкенд!
+                            stopSimulation(); 
                             setIsSimulationActive(false);
                             setIsSimulationPaused(false);
                           }}
                           className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl text-sm font-semibold shadow-sm hover:bg-gray-200 transition-all"
                         >
-                          סיים (End)
+                          סיים 
                         </button>
                       </div>
                     )}
@@ -1402,12 +1480,12 @@ function App() {
                   {/* Real-Time Room Cards Grid Container */}
                   <div className="grid grid-cols-2 gap-2.5 max-h-72 overflow-y-auto overflow-x-hidden no-scrollbar pr-1">
                     {visibleRooms.map((room: any) => {
-                      // 1. SAFETY SHIELD: Fallback to 'UNKNOWN' if fields are missing so getStatusStyles never crashes
+                      // Fall back to 'UNKNOWN' when the status field is missing
                       const rawStatus =
                         room.occupancy_status || room.status || "UNKNOWN";
                       const status = getStatusStyles(rawStatus);
 
-                      // 2. SAFETY SHIELD: Safe fallbacks for room display text
+                      // Fallbacks for missing room display text
                       const displayRoomNumber =
                         room.room_id || room.room || "מזהה חסר";
                       const displayBuilding =
@@ -1520,7 +1598,22 @@ function App() {
                           }}
                         >
                           <div>
-                            📡{" "}
+                             <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              style={{ display: "inline-block", verticalAlign: "middle" }}
+                            >
+                              <path d="M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2" />
+                              <path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4" />
+                              <circle cx="12" cy="12" r="2" />
+                            </svg>{" "}
+
                             <span style={{ color: "#888" }}>
                               [{log.timestamp}]
                             </span>{" "}
@@ -1536,16 +1629,24 @@ function App() {
                               fontSize: "11px",
                             }}
                           >
-                            ↳ 🧠 {log.message}
+                            ↳ {log.message}
                           </div>
                         </div>
                       ))}
                     </div>
                     <p className="text-[11px] text-gray-400 mt-2 text-right font-semibold">
                       סטטוס טרמינל:{" "}
-                      {isSimulationActive
-                        ? "🔴 Live Feed Streaming"
-                        : "⚪ Offline"}
+                      {isSimulationActive ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-[#E24B4A] animate-pulse" />
+                          Live Feed Streaming
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-gray-300" />
+                          Offline
+                        </span>
+                      )}
                     </p>
                   </div>
                 )}
@@ -1559,7 +1660,7 @@ function App() {
                   חיפוש וסינון לפי לו"ז מערכת שעות
                 </h2>
                 <div className="space-y-4 mt-2">
-                  {/* ФИЛЬТР ПО ЗДАНИЯМ (ТЕПЕРЬ ДИНАМИЧЕСКИЙ) */}
+                  {/* Building filter (dynamic, built from the database) */}
                   <div>
                     <div className="relative">
                       <input
@@ -1641,7 +1742,7 @@ function App() {
                     )}
                   </div>
 
-                  {/* СЛАЙДЕР ВРЕМЕНИ */}
+                 {/* Minimum free time slider */}
                   <div>
                     <label className="block text-xs font-semibold text-gray-400 uppercase mb-1.5">
                       זמן פנוי מינימלי:{" "}
@@ -1667,7 +1768,7 @@ function App() {
                     </div>
                   </div>
 
-                  {/* КНОПКА ПОИСКА */}
+                  {/* Search button */}
                   <button
                     onClick={() =>
                       searchRooms({
@@ -1681,7 +1782,7 @@ function App() {
                     {isSearching ? "מחפש..." : "חפש חדרים פנויים"}
                   </button>
 
-                  {/* БЛОК РЕЗУЛЬТАТОВ ПОИСКА */}
+                  {/* Search results block */}
                   {searchResponse && (
                     <div className="mt-6 border-t border-gray-100 pt-4 animate-fadeIn">
                       <div className="flex justify-between items-center mb-3">
@@ -1768,7 +1869,7 @@ function App() {
                     </div>
                   )}
 
-                  {/* ML DATA SCIENCE FORECASTING CARD (Smart Dropdowns & Feedback) */}
+                  
                   <div className="mt-8 border-t border-gray-100 pt-6 animate-fadeIn">
                     <div className="bg-[#E1F5EE]/40 border border-[#006937]/20 p-5 rounded-3xl space-y-4">
                       {/* Product UX Header without jargon */}
@@ -1912,9 +2013,23 @@ function App() {
                           {/* FEEDBACK: IF SPECIFIC ROOM WAS NOT FOUND */}
                           {mlSpecificRoom.trim() &&
                             mlPrediction.room_exists === false && (
-                              <div className="bg-red-50 border border-red-200 p-3.5 rounded-2xl text-red-700 text-xs font-bold text-center">
-                                ⚠️ כיתה {mlSpecificRoom} אינה קיימת בבניין שנבחר
-                                או שאין לגביה נתונים במערכת.
+                              <div className="bg-red-50 border border-red-200 p-3.5 rounded-2xl text-red-700 text-xs font-bold flex items-start justify-center gap-1.5">
+                                <svg
+                                  className="w-4 h-4 shrink-0 mt-0.5"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="1.8"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                                  <path d="M12 9v4M12 17h.01" />
+                                </svg>
+                                <span>
+                                  כיתה {mlSpecificRoom} אינה קיימת בבניין שנבחר
+                                  או שאין לגביה נתונים במערכת.
+                                </span>
                               </div>
                             )}
 
@@ -2093,29 +2208,42 @@ function App() {
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z" />
-                      <path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3" />
+                      <path d="m12 3 2.9 5.9 6.1.9-4.5 4.3 1.1 6.4-5.6-3-5.6 3 1.1-6.4L3 9.8l6.1-.9z" />
                     </svg>
-                    דרגה: {currentUser.tier}
+                     משתמש {tierLabel(currentUser.tier)}
                   </span>
                 </div>
 
-                {/* Pioneer Rule Banner: Evaluates the actual boolean value from main.py */}
-                {!currentUser.pioneer_rule_unlocked && (
-                  <div className="bg-amber-50 text-amber-800 p-3.5 rounded-2xl border border-amber-200 text-xs font-semibold text-right space-y-1 animate-slideUp">
-                    <p className="text-amber-900 flex items-center gap-1.5">
-                      {" "}
-                      תקופת הרצה למשתמש חדש
-                    </p>
-                    <p className="text-gray-500 font-normal leading-relaxed">
-                      מכיוון שאתה רשום כמשתמש חדש במערכת, הדיווחים הראשונים שלך
-                      יעברו בדיקת קונצנזוס על ידי חברי הקהילה בקמפוס לפני שישנו
-                      את צבע המפה.
-                    </p>
-                  </div>
-                )}
+               {/* Pioneer rule banner: shown to new users until dismissed or promoted */}
+                {!currentUser.pioneer_rule_unlocked &&
+                  !pioneerBannerDismissed && (
+                    <div className="bg-amber-50 text-amber-800 p-3.5 rounded-2xl border border-amber-200 text-xs font-semibold text-right space-y-1 animate-slideUp relative">
+                      <button
+                        onClick={dismissPioneerBanner}
+                        className="absolute left-3 top-3 text-amber-400 hover:text-amber-700 transition-colors"
+                        aria-label="סגור הודעה"
+                      >
+                        ✕
+                      </button>
+                      <p className="text-amber-900 flex items-center gap-1.5 pl-6">
+                        חשוב לדעת למשתמשים חדשים
+                      </p>
+                      <p className="text-gray-500 font-normal leading-relaxed">
+                        הדיווחים הראשונים שלך יאומתו מול
+                        דיווחים של משתמשים אחרים בקמפוס לפני שהם משנים את צבע
+                        המפה. 
+                      </p>
+                      <p className="text-gray-500 font-normal leading-relaxed">
+                       אחרי כמה דיווחים מדויקים הדיווחים שלך יתחילו
+                        להשפיע באופן מיידי.
+                      </p>
+                      <p className="text-gray-500 font-normal leading-relaxed"> 
+                         תודה על ההבנה!
+                      </p>
+                    </div>
+                  )}
 
-                {/* Dynamic Trust Score Progress Indicator */}
+                {/*  Dynamic Trust Score Progress Indicator
                 <div className="bg-[#004128] text-white p-4 rounded-2xl shadow-inner">
                   <span className="text-[10px] text-green-300 font-semibold uppercase tracking-wider block">
                     ציון אמינות קהילתי שלך
@@ -2129,80 +2257,89 @@ function App() {
                       : "★ הדירוג משתנה על בסיס דיוק הדיווחים שלך"}
                   </p>
                 </div>
+                */}
 
-                {/* Achievement Matrix Badges */}
+                {/* Achievement badges, unlocked from the user's own report data */}
                 <div className="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-gray-100">
-                  <div className="text-center opacity-100">
-                    <svg
-                      className="w-7 h-7 mx-auto block text-[#006937]"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                  {[
+                    {
+                      key: "first",
+                      label: "דיווח ראשון",
+                      unlocked: achievements.firstReport,
+                      stroke: "#78cde6",
+                      fill: "#EF9F27",
+                      icon: (
+                        <>
+                          <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z" />
+                          <path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3" />
+                        </>
+                      ),
+                    },
+                    {
+                      key: "streak",
+                      label:
+                        achievements.streakDays === 1
+                          ? "יום ברצף"
+                          : `${achievements.streakDays} ימים ברצף`,
+                      unlocked: achievements.streakDays >= 1,
+                      stroke: "#78cde6",
+                      fill: "#EF9F27",
+                      icon: (
+                        <path d="M12 3c2 3 5 4 5 8a5 5 0 0 1-10 0c0-1.6.6-2.8 1.5-3.6C8.7 8.4 9 9 10 9c0-2 1-4 2-6z" />
+                      ),
+                    },
+                    {
+                      key: "accuracy",
+                      label: "דיוק גבוה",
+                      unlocked: achievements.highAccuracy,
+                      stroke: "#F08A87",
+                      fill: "none",
+                      icon: (
+                        <>
+                          <circle cx="12" cy="12" r="9" />
+                          <circle cx="12" cy="12" r="5" />
+                          <circle cx="12" cy="12" r="1.5" />
+                        </>
+                      ),
+                    },
+                    {
+                      key: "twenty",
+                      label: "20 דיווחים",
+                      unlocked: achievements.twentyReports,
+                      stroke: "#78cde6",
+                      fill: "none",
+                      icon: (
+                        <>
+                          <path d="M6 3h12l3 5-9 12L3 8z" />
+                          <path d="M3 8h18" />
+                          <path d="M9 3 7.5 8 12 20" />
+                          <path d="M15 3l1.5 5L12 20" />
+                        </>
+                      ),
+                    },
+                  ].map((badge) => (
+                    <div
+                      key={badge.key}
+                      className={`text-center ${badge.unlocked ? "opacity-100" : "opacity-40"}`}
                     >
-                      <circle cx="12" cy="12" r="4" />
-                      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-                    </svg>
-                    <span className="text-[9px] font-semibold text-gray-400">
-                      דיווח ראשון
-                    </span>
-                  </div>
-                  <div className="text-center opacity-100">
-                    <svg
-                      className="w-7 h-7 mx-auto block text-[#006937]"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <circle cx="12" cy="12" r="9" />
-                      <circle cx="12" cy="12" r="5" />
-                      <circle cx="12" cy="12" r="1.5" />
-                    </svg>
-                    <span className="text-[9px] font-semibold text-gray-400">
-                      דיוק גבוה
-                    </span>
-                  </div>
-                  <div className="text-center opacity-100">
-                    <svg
-                      className="w-7 h-7 mx-auto block text-[#006937]"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M12 3c2 3 5 4 5 8a5 5 0 0 1-10 0c0-1.6.6-2.8 1.5-3.6C8.7 8.4 9 9 10 9c0-2 1-4 2-6z" />
-                    </svg>
-                    <span className="text-[9px] font-semibold text-gray-400">
-                      7 ימים ברצף
-                    </span>
-                  </div>
-                  <div className="text-center opacity-40">
-                    <svg
-                      className="w-7 h-7 mx-auto block text-gray-400"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M6 3h12l3 5-9 12L3 8z" />
-                      <path d="M3 8h18" />
-                      <path d="M9 3 7.5 8 12 20" />
-                      <path d="M15 3l1.5 5L12 20" />
-                    </svg>
-                    <span className="text-[9px] font-semibold text-gray-400">
-                      50 דיווחים
-                    </span>
-                  </div>
+                      <svg
+                        className="w-7 h-7 mx-auto block"
+                        viewBox="0 0 24 24"
+                        fill={badge.unlocked ? badge.fill : "none"}
+                        stroke={badge.unlocked ? badge.stroke : "#9ca3af"}
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        {badge.icon}
+                      </svg>
+                      <span className="text-[9px] font-semibold text-gray-400">
+                        {badge.label}
+                      </span>
+                    </div>
+                  ))}
                 </div>
+
                 <div className="mt-6 border-t border-gray-100 pt-5 text-right animate-fadeIn">
                   <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
                     <svg
@@ -2488,7 +2625,7 @@ function App() {
                       </div>
                     </div>
                   ) : (
-                    /* --- Финальный экран благодарности --- */
+                    /* - Final thank-you screen  */
                     <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm text-center space-y-3 animate-fadeIn">
                       <div className="w-16 h-16 bg-[#E1F5EE] text-[#006937] flex items-center justify-center rounded-full mx-auto">
                         <svg
@@ -2535,7 +2672,7 @@ function App() {
                   )
                 ) : (
                   <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm space-y-5">
-                    {/* Здание: ввод + список */}
+                    {/* Building: input + dropdown list */}
                     <div className="space-y-1.5 relative">
                       <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">
                         בניין
@@ -2582,7 +2719,7 @@ function App() {
                       )}
                     </div>
 
-                    {/* Аудитория: ввод + список */}
+                    {/* Room: input + dropdown list */}
                     <div className="space-y-1.5 relative">
                       <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">
                         כיתה
@@ -2630,7 +2767,7 @@ function App() {
                       )}
                     </div>
 
-                    {/* Статус */}
+                    {/* Status */}
                     <div className="space-y-1.5">
                       <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">
                         מה המצב עכשיו?
@@ -2711,7 +2848,7 @@ function App() {
                 onClick={() => {
                   setShowUserManager(false);
                   setEditingUser(null);
-                  setAdminUserSearch(""); // Reset search on close
+                  setAdminUserSearch(""); 
                 }}
               >
                 <div
@@ -2731,7 +2868,7 @@ function App() {
                       onClick={() => {
                         setShowUserManager(false);
                         setEditingUser(null);
-                        setAdminUserSearch(""); // Reset search on close
+                        setAdminUserSearch("");
                       }}
                       className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center font-bold"
                     >
@@ -2821,7 +2958,7 @@ function App() {
                             className="w-full px-2.5 py-1.5 rounded-xl border border-gray-200 bg-white text-xs font-semibold text-right"
                           >
                             <option value="Newbie">Newbie (חדש)</option>
-                            <option value="Resident">Resident (תושב)</option>
+                            <option value="Resident">Resident (ותיק)</option>
                             <option value="VIP">VIP (מצטיין)</option>
                           </select>
                         </div>
@@ -2866,7 +3003,17 @@ function App() {
                           }}
                           className="bg-amber-500 hover:bg-amber-600 text-black py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
                         >
-                          <span>👁️</span>
+                        <svg className="w-3.5 h-3.5"
+                         viewBox="0 0 24 24"
+                         fill="none"
+                         stroke="currentColor"
+                         strokeWidth="1.8"
+                          strokeLinecap="round"
+                         strokeLinejoin="round"
+                         >
+                         <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                         <circle cx="12" cy="12" r="3" />
+                        </svg>
                           <span>צפה באפליקציה כמשתמש זה</span>
                         </button>
                       </div>
@@ -2899,7 +3046,7 @@ function App() {
                         }}
                         className="w-full bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 py-1.5 rounded-xl text-xs font-semibold transition-all"
                       >
-                        📋 הצג היסטוריית דיווחים של המשתמש (
+                         הצג היסטוריית דיווחים של המשתמש (
                         {editingUser.total_reports} סה״כ)
                       </button>
                     </div>

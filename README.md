@@ -1,85 +1,192 @@
-# Smart Campus 🎓
+# Smart Campus
 
 **System for Optimization and Visual Management of Academic Spaces**
 
-## 📌 About the Project
+A team project developed for the Final Project course at the Department of Information Science and Applied Artificial Intelligence, Bar-Ilan University.
 
-Smart Campus is a comprehensive backend and simulation system designed to monitor and manage classroom occupancy in real-time. By combining official university schedules with crowdsourced reports from students and lecturers, the system provides accurate room availability status. It features a built-in state machine, a consensus algorithm, and a user Trust Score system to filter out false reports.
+## About the Project
 
-## 🚀 Key Features
+Finding an empty classroom on campus usually means walking the corridors and peeking through doors. Smart Campus turns that into a map: it shows which rooms are free right now, and how long they are likely to stay that way.
 
-- **Automated Data Scraping:** Extracts the latest course catalog and schedule data directly from the university portal bypassing captchas.
-- **ETL Pipeline:** Cleans and normalizes raw schedule data (faculties, times, semesters) into a structured format.
-- **Cloud Database Integration:** Uses PostgreSQL (Supabase) via SQLAlchemy for robust relational data storage.
-- **Real-time Simulation:** A dynamic simulation engine that mimics user behavior, tests crowd consensus logic, and automatically updates the database.
-- **Trust Score & Consensus:** Users gain or lose trust points based on the accuracy of their reports compared to the crowd consensus.
+The system does not trust any single source of truth. The official university timetable says what *should* be happening in a room; students and lecturers report what is *actually* happening. When the two disagree, a consensus algorithm decides — weighted by a Trust Score that each user earns or loses depending on how accurate their past reports turned out to be. A single false report cannot flip a room's status.
 
-## 🛠️ Tech Stack
+The interface is in Hebrew and laid out right-to-left, matching the language of the campus it serves.
 
-- **Language:** Python 3.10+
-- **Data Processing:** Pandas, Openpyxl
-- **Web Scraping:** Selenium, Undetected-Chromedriver
-- **Database:** PostgreSQL (Supabase), SQLAlchemy, psycopg2
-- **Environment Management:** python-dotenv
+Around that core there is an ETL pipeline that scrapes and normalizes the university course catalog, a PostgreSQL database, a FastAPI backend with an occupancy state machine and a simulation engine, a machine-learning module that forecasts availability, and a React frontend built around an interactive campus map.
 
-## 📂 Project Structure
+## Project Status
 
-- `backend/` - Server-side logic and database connection.
-  - `db_service.py` - Data Access Layer (DAL) handling all direct database queries.
-- `cleaning_data/` - ETL pipeline scripts.
-  - `main.py` - Main entry point for data cleaning.
-  - `cleaners/` - Modules for standardizing faculties, time, days, and locations.
-- `data/` - Local storage for processed datasets.
-  - `cleaned/` - Final output files ready for database migration.
-- `database/` - Database management and initialization.
-  - `init_schema.sql` - PostgreSQL schema definition.
-  - `seed_data.py` - Script to populate the DB with cleaned CSV data.
-- `docs/` - Project documentation and literature reviews (in future).
-- `frontend/` - Future location for the user interface.
-- `simulation/src/` - Core logic engine (`simulation_integrated.py`).
-- `tools/` - Utility scripts, including `scrape.py` for web scraping.
+This is a working demo, built as a proof of concept for adoption by the university. It handles concurrent use — multiple students and lecturers reporting at the same time, with the consensus algorithm resolving disagreements — and runs against a live cloud database rather than mock data.
 
-## ⚙️ Setup & Installation
+Development is ongoing, and a few parts are deliberately simplified for the demo:
+
+- The schedule-based search evaluates availability against a fixed reference point (Monday, 10:00, semester א) instead of the current date and time.
+- The timetable comes from a one-off scraped and cleaned dataset. In a deployed system it would be fed directly from the university's own scheduling systems.
+- New-user probation, Trust Score thresholds and the forecasting model are tuned on simulated activity, and would need recalibration against real campus usage.
+
+
+## Live Deployment
+
+| Service | Platform | URL |
+|---|---|---|
+| Backend API (Swagger) | Render (Web Service) | https://smart-campus-oknf.onrender.com/docs |
+| Frontend | Render (Static Site) | _see the Render dashboard_ |
+| Database | Supabase (PostgreSQL) | — |
+
+Both services redeploy automatically on every push to `main`.
+
+The API base URL is `https://smart-campus-oknf.onrender.com`, but there is no route at the root, so opening it directly returns `{"detail":"Not Found"}`. That is expected — every endpoint lives under `/api/`, and `/docs` is the place to explore them.
+
+One caveat worth knowing: on Render's free tier the backend goes to sleep after about 15 minutes of inactivity, so the first request after a quiet period can take 30–60 seconds. This is a cold start, not a failure.
+
+## What the System Does
+
+**For the user**
+
+The map is the entry point. Every campus building carries a marker colored by its overall state and labelled with the number of rooms currently free; opening a marker gives a searchable list of the rooms inside. Below the map the same data appears as cards, filterable by building, room number and amenities.
+
+Reporting a room takes one tap — free or busy. The report is weighted by the reporter's Trust Score, and new users go through a probation period (the "pioneer rule") during which their reports are checked against the community before they can change what everyone else sees.
+
+Two kinds of search sit on top of this. One is schedule-based: find rooms that stay free for at least N minutes according to the official timetable. The other is a forecast: a Random Forest model trained on three months of campus history estimates the probability that a given room will be free at a chosen day and hour, and returns the five rooms most likely to be available.
+
+**Behind the scenes**
+
+An admin panel with role-based access control handles user management, manual Trust Score adjustment, report history and an impersonation mode for debugging. A simulation engine replays scripted scenarios — normal flow, conflicting reports, a spam attack, a VIP override — against the live database to check that the consensus logic behaves as intended. Feeding all of this is a scraper that pulls the course catalog from the university portal and an ETL pipeline that normalizes faculties, times, days, semesters and building codes into a consistent dataset.
+
+## Tech Stack
+
+**Backend**
+- Python 3.10+, FastAPI, Uvicorn, Pydantic
+- SQLAlchemy, psycopg2 (PostgreSQL / Supabase)
+- SimPy for the simulation engine, python-dotenv for configuration
+
+**Frontend**
+- React 19, TypeScript, Vite
+- Tailwind CSS 4, Leaflet with React Leaflet
+- TanStack React Query, Axios
+
+**Data and ML**
+- Pandas, NumPy, Openpyxl
+- scikit-learn (Random Forest), Matplotlib, Seaborn
+- Selenium with Undetected-Chromedriver for scraping
+
+## Project Structure
+
+- `backend/` — FastAPI application and data access layer.
+  - `main.py` — API endpoints, occupancy state machine, simulation control.
+  - `db_service.py` — Data Access Layer, all direct database queries live here.
+  - `generate_scenarios.py` — builds the simulation scenario datasets.
+- `cleaning_data/` — the ETL pipeline.
+  - `main.py` — entry point for data cleaning.
+  - `cleaners/` — one module per field: faculties, time, days, semesters, buildings.
+- `data/` — datasets.
+  - `cleaned/` — final output, ready for database migration.
+  - `scenarios/` — CSV scenarios used by the simulation engine.
+- `database/` — schema and initialization.
+  - `init_schema.sql` — PostgreSQL schema definition.
+  - `seed_data.py` — populates the database from the cleaned CSV data.
+- `docs/` — project documentation and literature review.
+- `frontend/` — React + Vite single-page application.
+  - `src/App.tsx` — application shell and all tab views.
+  - `src/components/CampusMap.tsx` — the Leaflet campus map.
+  - `src/hooks/` — React Query hooks, one per API endpoint.
+- `ml_forecasting/` — the machine-learning module.
+  - `generate_ml_dataset.py` — builds the training dataset.
+  - `train_model.py` — trains and evaluates the Random Forest model.
+  - `room_predictor.pkl` — trained model artifact, loaded by the API.
+- `simulation/src/` — standalone logic engine (`simulation_integrated.py`, `logic_engine.py`).
+- `tools/` — utility scripts, including `scrape.py`.
+
+## Setup
 
 **1. Clone the repository**
-git clone <your-repo-url>
-cd smart-campus
+
+    git clone <your-repo-url>
+    cd smart-campus
 
 **2. Create a virtual environment and install dependencies**
-python -m venv venv
-source venv/bin/activate # On Windows use: venv\Scripts\activate
-pip install -r requirements.txt
 
-**3. Environment Variables**
-Create a .env file in the root directory and add your Supabase database connection string:
-DATABASE_URL="postgresql://user:password@host:port/dbname"
+    python -m venv venv          # on Windows use: py -m venv venv
+    source venv/bin/activate     # on Windows use: venv\Scripts\activate
+    pip install -r requirements.txt
 
-**4. Run the Pipeline**
-Step 1: python scrape.py (Gather data)
-Step 2: python main.py (Clean data)
-Step 3: python backend/seed_data.py (Initialize and populate DB)
----- 3.1: python backend/simulation_integrated.py (Run the logic engine, for backend only)
-Step 5: uvicorn backend.main:app --reload (Launching the Backend API to communicate with simulation)
----- Once the server is launched, the interactive documentation is available at: http://127.0.0.1:8000/docs
+**3. Set the environment variables**
 
-## Running the Frontend (React / Vite)
+Create a `.env` file in the project root with the Supabase connection string:
 
-**1. Setting Up the Environment**
-Since configuration files are not stored in Git, before running the first time, create a .env file in the frontend folder and add the backend URL to it:
+    DATABASE_URL="postgresql://user:password@host:port/dbname"
 
-VITE_API_URL=http://127.0.0.1:8000
+## Where the Data Came From
 
-**2. Installing Libraries (First Time Only)**
-Open a terminal, navigate to the frontend folder, and download the dependencies:
+The database is already provisioned and populated on Supabase; with `DATABASE_URL` pointing at it, the application runs as-is.
 
-cd frontend
-npm install
+The dataset behind it was prepared once, before the system itself was built. The course catalog was scraped from the university portal (`tools/`), normalized by the ETL pipeline (`cleaning_data/`), and loaded into PostgreSQL by `database/seed_data.py`. The forecasting model was then trained on generated occupancy history (`ml_forecasting/`). The `cleaning_data/`, `database/` and `ml_forecasting/` directories each have their own README describing that step in detail.
 
-**3. Starting the Server**
-Launch the developer interface with the command:
+Rebuilding from scratch is only relevant when starting a fresh database: `database/init_schema.sql` drops and recreates all six tables, so it must never be pointed at the shared cloud instance.
 
-npm run dev
 
-After that, open the following link in your browser: http://localhost:5173
+## Running the Application
 
-⚠️ Important rule: The frontend doesn't run on its own. Make sure you have a second terminal open with the backend running in parallel (uvicorn backend.main:app --reload).
+**Backend**
+
+    uvicorn backend.main:app --reload
+
+The API is served at http://127.0.0.1:8000, with interactive documentation at http://127.0.0.1:8000/docs.
+
+**Frontend**
+
+Configuration files are not kept in Git, so before the first run create a `.env` file inside the `frontend` folder:
+
+    VITE_API_URL=http://127.0.0.1:8000
+
+Then install the dependencies (first time only) and start the dev server:
+
+    cd frontend
+    npm install
+    npm run dev
+
+The interface opens at http://localhost:5173.
+
+The frontend does not run on its own — it needs the backend. Either keep a second terminal open with `uvicorn` running, or point `VITE_API_URL` at the deployed backend and work against the cloud instead.
+
+## API Reference
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/rooms` | Current occupancy status of all rooms |
+| `GET` | `/api/rooms/search` | Rooms free for at least `min_minutes`, optionally filtered by `building` |
+| `POST` | `/api/users/login` | Register or log in a user |
+| `POST` | `/api/reports/submit` | Submit a free/busy report |
+| `GET` | `/api/users/{app_user_id}/history` | Report history of a specific user |
+| `GET` | `/api/ml/forecast` | Availability forecast for a given day and hour |
+| `POST` | `/api/simulation/start` | Load a scenario and start the simulation engine |
+| `POST` | `/api/simulation/stop` | Stop the simulation engine |
+| `GET` | `/api/simulation/status` | Whether the engine is currently running |
+| `GET` | `/api/simulation/logs` | Recent simulation log entries |
+| `POST` | `/api/simulation/clear-logs` | Clear the simulation log |
+| `GET` | `/api/admin/users` | List all users (admin only) |
+| `PUT` | `/api/admin/users/{app_user_id}` | Update a user's role, tier or Trust Score |
+| `DELETE` | `/api/admin/users/{app_user_id}` | Delete a user |
+
+## Database Schema
+
+Six tables, defined in `database/init_schema.sql`:
+
+| Table | Purpose |
+|---|---|
+| `buildings` | Campus buildings |
+| `rooms` | Classrooms, each linked to a building |
+| `users` | App users with role, tier and Trust Score |
+| `schedule_events` | Official timetable entries |
+| `occupancy_status` | Current live status of each room |
+| `report_history` | Every report ever submitted, used for auditing and Trust Score calculation |
+
+## Machine Learning
+
+The forecasting module uses a Random Forest classifier trained on three months of campus occupancy history (`ml_forecasting/campus_history_3m.csv`). The features are the day of the week, the hour, the building, the room, and whether an official class is scheduled at that time.
+
+Running `train_model.py` produces two evaluation artifacts alongside the model: `feature_importance.png`, showing which features carry the most weight, and `confusion_matrix.png`, showing performance on the held-out test set. The trained model is serialized to `room_predictor.pkl` and loaded lazily by the backend on the first call to `/api/ml/forecast`.
+
+## License
+
+Released under the MIT License. See the [LICENSE](LICENSE) file for details.

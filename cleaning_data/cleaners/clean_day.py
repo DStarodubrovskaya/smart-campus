@@ -24,7 +24,7 @@ def clean_day_column(df: pd.DataFrame) -> pd.DataFrame:
     df_cleaned['Day'] = df_cleaned['Day'].apply(parse_days)
 
     # Step 2: Remove rows where no valid days were found (drop garbage/empty data)
-    # Note: If you want to KEEP courses without specific days, remove this line!
+       # Courses without a parsable day are dropped on purpose: they cannot be placed on a timetable
     df_cleaned = df_cleaned.dropna(subset=['Day'])
 
     # Step 3: EXPLODE. 
