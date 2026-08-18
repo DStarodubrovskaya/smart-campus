@@ -8,7 +8,7 @@ A team project developed for the Final Project course at the Department of Infor
 
 Finding an empty classroom on campus usually means walking the corridors and peeking through doors. Smart Campus turns that into a map: it shows which rooms are free right now, and how long they are likely to stay that way.
 
-The system does not trust any single source of truth. The official university timetable says what *should* be happening in a room; students and lecturers report what is *actually* happening. When the two disagree, a consensus algorithm decides — weighted by a Trust Score that each user earns or loses depending on how accurate their past reports turned out to be. A single false report cannot flip a room's status.
+The system does not trust any single source of truth. The official university timetable says what _should_ be happening in a room; students and lecturers report what is _actually_ happening. When the two disagree, a consensus algorithm decides — weighted by a Trust Score that each user earns or loses depending on how accurate their past reports turned out to be. A single false report cannot flip a room's status.
 
 The interface is in Hebrew and laid out right-to-left, matching the language of the campus it serves.
 
@@ -24,14 +24,13 @@ Development is ongoing, and a few parts are deliberately simplified for the demo
 - The timetable comes from a one-off scraped and cleaned dataset. In a deployed system it would be fed directly from the university's own scheduling systems.
 - New-user probation, Trust Score thresholds and the forecasting model are tuned on simulated activity, and would need recalibration against real campus usage.
 
-
 ## Live Deployment
 
-| Service | Platform | URL |
-|---|---|---|
-| Backend API (Swagger) | Render (Web Service) | https://smart-campus-oknf.onrender.com/docs |
-| Frontend | Render (Static Site) | _see the Render dashboard_ |
-| Database | Supabase (PostgreSQL) | — |
+| Service               | Platform              | URL                                         |
+| --------------------- | --------------------- | ------------------------------------------- |
+| Backend API (Swagger) | Render (Web Service)  | https://smart-campus-oknf.onrender.com/docs |
+| Frontend              | Render (Static Site)  | _see the Render dashboard_                  |
+| Database              | Supabase (PostgreSQL) | —                                           |
 
 Both services redeploy automatically on every push to `main`.
 
@@ -56,16 +55,19 @@ An admin panel with role-based access control handles user management, manual Tr
 ## Tech Stack
 
 **Backend**
+
 - Python 3.10+, FastAPI, Uvicorn, Pydantic
 - SQLAlchemy, psycopg2 (PostgreSQL / Supabase)
 - SimPy for the simulation engine, python-dotenv for configuration
 
 **Frontend**
+
 - React 19, TypeScript, Vite
 - Tailwind CSS 4, Leaflet with React Leaflet
 - TanStack React Query, Axios
 
 **Data and ML**
+
 - Pandas, NumPy, Openpyxl
 - scikit-learn (Random Forest), Matplotlib, Seaborn
 - Selenium with Undetected-Chromedriver for scraping
@@ -94,6 +96,7 @@ An admin panel with role-based access control handles user management, manual Tr
   - `generate_ml_dataset.py` — builds the training dataset.
   - `train_model.py` — trains and evaluates the Random Forest model.
   - `room_predictor.pkl` — trained model artifact, loaded by the API.
+  - `evaluate_baseline.py` — compares the saved model with a schedule-only baseline on the same held-out test set.
 - `simulation/src/` — standalone logic engine (`simulation_integrated.py`, `logic_engine.py`).
 - `tools/` — utility scripts, including `scrape.py`.
 
@@ -124,7 +127,6 @@ The dataset behind it was prepared once, before the system itself was built. The
 
 Rebuilding from scratch is only relevant when starting a fresh database: `database/init_schema.sql` drops and recreates all six tables, so it must never be pointed at the shared cloud instance.
 
-
 ## Running the Application
 
 **Backend**
@@ -151,35 +153,35 @@ The frontend does not run on its own — it needs the backend. Either keep a sec
 
 ## API Reference
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/rooms` | Current occupancy status of all rooms |
-| `GET` | `/api/rooms/search` | Rooms free for at least `min_minutes`, optionally filtered by `building` |
-| `POST` | `/api/users/login` | Register or log in a user |
-| `POST` | `/api/reports/submit` | Submit a free/busy report |
-| `GET` | `/api/users/{app_user_id}/history` | Report history of a specific user |
-| `GET` | `/api/ml/forecast` | Availability forecast for a given day and hour |
-| `POST` | `/api/simulation/start` | Load a scenario and start the simulation engine |
-| `POST` | `/api/simulation/stop` | Stop the simulation engine |
-| `GET` | `/api/simulation/status` | Whether the engine is currently running |
-| `GET` | `/api/simulation/logs` | Recent simulation log entries |
-| `POST` | `/api/simulation/clear-logs` | Clear the simulation log |
-| `GET` | `/api/admin/users` | List all users (admin only) |
-| `PUT` | `/api/admin/users/{app_user_id}` | Update a user's role, tier or Trust Score |
-| `DELETE` | `/api/admin/users/{app_user_id}` | Delete a user |
+| Method   | Endpoint                           | Description                                                              |
+| -------- | ---------------------------------- | ------------------------------------------------------------------------ |
+| `GET`    | `/api/rooms`                       | Current occupancy status of all rooms                                    |
+| `GET`    | `/api/rooms/search`                | Rooms free for at least `min_minutes`, optionally filtered by `building` |
+| `POST`   | `/api/users/login`                 | Register or log in a user                                                |
+| `POST`   | `/api/reports/submit`              | Submit a free/busy report                                                |
+| `GET`    | `/api/users/{app_user_id}/history` | Report history of a specific user                                        |
+| `GET`    | `/api/ml/forecast`                 | Availability forecast for a given day and hour                           |
+| `POST`   | `/api/simulation/start`            | Load a scenario and start the simulation engine                          |
+| `POST`   | `/api/simulation/stop`             | Stop the simulation engine                                               |
+| `GET`    | `/api/simulation/status`           | Whether the engine is currently running                                  |
+| `GET`    | `/api/simulation/logs`             | Recent simulation log entries                                            |
+| `POST`   | `/api/simulation/clear-logs`       | Clear the simulation log                                                 |
+| `GET`    | `/api/admin/users`                 | List all users (admin only)                                              |
+| `PUT`    | `/api/admin/users/{app_user_id}`   | Update a user's role, tier or Trust Score                                |
+| `DELETE` | `/api/admin/users/{app_user_id}`   | Delete a user                                                            |
 
 ## Database Schema
 
 Six tables, defined in `database/init_schema.sql`:
 
-| Table | Purpose |
-|---|---|
-| `buildings` | Campus buildings |
-| `rooms` | Classrooms, each linked to a building |
-| `users` | App users with role, tier and Trust Score |
-| `schedule_events` | Official timetable entries |
-| `occupancy_status` | Current live status of each room |
-| `report_history` | Every report ever submitted, used for auditing and Trust Score calculation |
+| Table              | Purpose                                                                    |
+| ------------------ | -------------------------------------------------------------------------- |
+| `buildings`        | Campus buildings                                                           |
+| `rooms`            | Classrooms, each linked to a building                                      |
+| `users`            | App users with role, tier and Trust Score                                  |
+| `schedule_events`  | Official timetable entries                                                 |
+| `occupancy_status` | Current live status of each room                                           |
+| `report_history`   | Every report ever submitted, used for auditing and Trust Score calculation |
 
 ## Machine Learning
 
